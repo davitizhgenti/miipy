@@ -1,0 +1,6 @@
+# Include the entire FFL-Testing submodule
+recursive-include FFL-Testing *
+
+# Include top-level files
+include README.md
+include LICENSE
