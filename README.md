@@ -1,4 +1,3 @@
-
 # MiiPy
 
 **MiiPy** is a Python library for rendering high-quality images of Nintendo Miis. It acts as a user-friendly wrapper around the powerful **FFL-Testing** C++ backend, automating the entire compilation and execution lifecycle.
@@ -34,8 +33,7 @@ Because this library compiles C++ source code on your machine, you **must** have
   
 ```
 
-* **Build Tools & CMake** **:** 
-
+* **Build Tools & CMake** **:**
 * **OpenGL/GLFW Libraries** **:**
 
 ```
@@ -166,6 +164,15 @@ except (FileNotFoundError, RuntimeError) as e:
     python -m miipy.builder
   
 ```
+
+## Acknowledgements
+
+This library would not be possible without the incredible work of [Arian Kordi (ariankordi)](https://github.com/ariankordi) and the [FFL-Testing](https://github.com/ariankordi/FFL-Testing) library, which serves as the core rendering engine.
+
+**MiiPy
+ is built upon the efforts of many others in the reverse-engineering and
+ homebrew communities. Please support their work and follow their
+projects.**
 
 ## License
 
