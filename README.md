@@ -147,7 +147,7 @@ except (FileNotFoundError, RuntimeError) as e:
 * **RuntimeError: Backend failed to start** **:**
 * **On Linux, this often happens in a "headless" environment (like a server or Docker container) that lacks a virtual display. Try running your script with **xvfb-run** (**sudo apt install xvfb**).**
 * **This can also happen if the **FFLResHigh.dat** file is corrupted, empty, or has incorrect read permissions.**
-* **git submodule** errors during installation**** **: Ensure you have Git installed and that your network connection can access GitHub.**
+* **git submodule** errors during installation **: Ensure you have Git installed and that your network connection can access GitHub.**
 
 ## For Developers
 
