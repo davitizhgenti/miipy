@@ -1,6 +1,7 @@
+# mii/client.py
 import socket
 import io
-from .protocol import RenderRequest
+from .exceptions import RenderError
 
 try:
     from PIL import Image
@@ -12,36 +13,30 @@ class FFLClient:
         self.host = "127.0.0.1"
         self.port = port
 
-    def render_image(self, request: RenderRequest) -> Image.Image:
+    def render_image(self, payload: bytes) -> Image.Image:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((self.host, self.port))
-                s.sendall(request.pack())
+                s.sendall(payload)
 
-                response = bytearray()
-                while True:
-                    chunk = s.recv(4096)
-                    if not chunk: break
-                    response.extend(chunk)
+                header = self._recv_exact(s, 18)
+                width = header[12] + (header[13] << 8)
+                height = header[14] + (header[15] << 8)
                 
-                if not response:
-                    raise ValueError("Server returned empty response.")
+                body_size = width * height * 4
+                raw_pixels = self._recv_exact(s, body_size)
+                
+                # Optimized decode
+                img = Image.frombytes('RGBA', (width, height), bytes(raw_pixels), 'raw', 'BGRA')
+                return img.transpose(Image.FLIP_TOP_BOTTOM)
 
-                with io.BytesIO(response) as stream:
-                    img = Image.open(stream)
-                    img.load()
-                    
-                    # The server outputs BGRA. We need to convert it to RGBA.
-                    # We split the channels and re-merge them in the correct order.
-                    b, g, r, a = img.split()
-                    img = Image.merge("RGBA", (r, g, b, a))
-                    
-                    # OpenGL renders Bottom-Up. Flip it vertically to correct the orientation.
-                    img = img.transpose(Image.FLIP_TOP_BOTTOM)
-                    
-                    return img
-
-        except ConnectionRefusedError:
-            raise ConnectionError("Connection refused. Is the backend running?")
         except Exception as e:
-            raise RuntimeError(f"Failed to process image from server: {e}")
+            raise RenderError(f"Render failed: {e}")
+
+    def _recv_exact(self, sock, size):
+        buf = bytearray()
+        while len(buf) < size:
+            chunk = sock.recv(4096)
+            if not chunk: raise RenderError("Connection closed.")
+            buf.extend(chunk)
+        return buf

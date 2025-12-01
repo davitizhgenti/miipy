@@ -1,181 +1,159 @@
 # MiiPy
 
-**MiiPy** is a Python library for rendering high-quality images of Nintendo Miis. It acts as a user-friendly wrapper around the powerful **FFL-Testing** C++ backend, automating the entire compilation and execution lifecycle.
-
-**This library is designed for developers who need to generate Mii images programmatically without the hassle of manually compiling and managing C++ dependencies.**
+MiiPy is a Python library that produces clear and sharp images of Nintendo Miis. It wraps the FFL-Testing C++ backend and hides the strain of building and running native code. It lets you focus on the task, not the tools.
 
 ## Features
 
-* **Automatic Backend Compilation** **: Compiles the C++ renderer on first use during installation.**
-* **Simple and Pythonic API** **: Render Miis with a single, intuitive function call.**
-* **Flexible Input** **: Accepts Mii data from **.ffsd** files or raw **bytes** objects.**
-* **Highly Customizable Renders** **: Control image size, zoom, Mii expression, and view type (face/body).**
-* **Cross-Platform** **: Works on Linux and Windows (macOS is currently unsupported).**
-* **Resource Management** **: Automatically starts and stops the backend process, cleaning up temporary files.**
+- **Automatic Backend Build**: The renderer builds itself on first use.  
+- **Clean Python API**: A single call renders a Mii.  
+- **Flexible Input**: Accepts `.ffsd` files or raw 96-byte data.  
+- **Rich Rendering Options**: Control size, zoom, expression, and view.  
+- **Cross-Platform**: Works on Linux and Windows.  
+- **Managed Resources**: The backend starts and stops on its own and cleans up temporary files.
 
 ## Prerequisites
 
-Because this library compiles C++ source code on your machine, you **must** have a complete build environment installed and available in your system's PATH.
+The backend is native code, so you need a working C++ build setup.
 
-#### On Windows:
+### Windows
 
-* **Git :** Download and install from [git-scm.com](https://www.google.com/url?sa=E&q=https%3A%2F%2Fgit-scm.com%2Fdownload%2Fwin).
-* **CMake :** Download and install from [cmake.org](https://www.google.com/url?sa=E&q=https%3A%2F%2Fcmake.org%2Fdownload%2F).
-* **Visual Studio : Install the "Desktop development with C++" workload from the Visual Studio Installer.**
+- Git  
+- CMake  
+- Visual Studio with the “Desktop development with C++” workload  
 
-#### On Linux (Debian/Ubuntu):
+### Linux (Debian/Ubuntu)
 
-* **Git** **:**
+```sh
+sudo apt-get update
+sudo apt-get install git build-essential cmake libglfw3-dev libgl1-mesa-dev
+````
 
-```
-    sudo apt-get update
-    sudo apt-get install git
-  
-```
+## Installation
 
-* **Build Tools & CMake** **:**
-* **OpenGL/GLFW Libraries** **:**
+> **Note:** Not yet published to PyPI.
 
-```
-    sudo apt-get install libglfw3-dev libgl1-mesa-dev
-  
+```sh
+pip install miipy
 ```
 
-## Installation (Not yet developed)
-
-**You can install MiiPy directly from PyPI :**
-
-```
-    pip install miipy
-  
-```
-
-**The first time you import the library, it will automatically attempt to clone the required C++ submodules and compile the backend. This may take a few minutes and will only happen once.**
+The first import clones the C++ sources and builds the backend. This runs once.
 
 ## Usage
 
-### Step 1: Obtain **FFLResHigh.dat**
+### Step 1: Required Resource File
 
-This library **cannot function** without the official **FFLResHigh.dat** resource file from a Nintendo Wii U. This file is copyrighted and **is not included**. You must acquire it from a legitimate source (e.g., your own system dump) and place it in the **FFL-Testing** folder within your project **before** running the code.
+You must supply **FFLResHigh.dat**, obtained from a legitimate Wii U dump.
+Place it inside the `FFL-Testing` folder before running any code.
 
-### Step 2: Code Example
+### Step 2: Basic Example
 
-**The primary interface is the **MiiPy** class. It is highly recommended to use a **with** statement to ensure the backend process is properly managed and shut down.**
-
-```
-from miipy import MiiPy, Expression, ViewType
+```python
+from mii import MiiPy, Expression, ViewType
 import os
 
-# The library requires FFLResHigh.dat to be in the FFL-Testing folder.
-# This script assumes you've placed it there.
-MII_FILE = "path/to/your/mii.ffsd" # A valid 96-byte Mii data file
+MII_FILE = "path/to/your/mii.ffsd"
 
 try:
-    # Initialize the renderer. This will auto-build the backend if it's the first run.
-    # The constructor finds FFLResHigh.dat inside the FFL-Testing folder.
     with MiiPy() as renderer:
-
-        # --- Example 1: Simple render to a file ---
-        print("Rendering standard face...")
+        # Simple face render
         renderer.render(
             source=MII_FILE,
             out="my_mii.png",
             size=512
         )
 
-        # --- Example 2: Change expression and get a PIL Image object ---
-        print("Rendering a smiling Mii...")
+        # Smiling expression returned as PIL Image
         img_obj = renderer.render(
             source=MII_FILE,
             expression=Expression.SMILE,
-            zoom=800 # Zoom out to see the head better
+            zoom=800
         )
         img_obj.save("smile.png")
 
-        # --- Example 3: Render the full body ---
-        print("Rendering full body...")
+        # Full body render (needs strong zoom-out)
         renderer.render(
             source=MII_FILE,
             out="body.png",
-            view=ViewType.BODY,
-            size=1024 # Higher resolution
+            view=ViewType.ALL_BODY,
+            size=512,
+            zoom=1200
         )
-  
-        # --- Example 4: Render from raw bytes in memory ---
-        print("Rendering from in-memory bytes...")
+
+        # Render from raw bytes
         with open(MII_FILE, "rb") as f:
-            mii_data_bytes = f.read()
-  
+            data_bytes = f.read()
+
         renderer.render(
-            source=mii_data_bytes,
+            source=data_bytes,
             out="from_bytes.png"
         )
 
 except (FileNotFoundError, RuntimeError) as e:
     print(f"An error occurred: {e}")
-  
 ```
 
 ## API Reference
 
-#### MiiPy(port=12346, show_logs=False)
+### `MiiPy(port=12346, show_logs=False)`
 
-**The main class for interacting with the renderer.**
+Main class for rendering Miis.
 
-* **port** **: The TCP port for the backend service. Defaults to **12346**.**
-* **show_logs** **: If **True**, all logs from the Python and C++ backend will be printed to the console. Useful for debugging. Defaults to **False**.**
+* **port**: TCP port for the backend.
+* **show_logs**: Print backend logs.
 
----
+### `renderer.render(source, out=None, size=512, **kwargs)`
 
-#### renderer.render(source, out=None, size=512, zoom=None, expression=Expression.NORMAL, view=ViewType.FACE)
+Render a single image.
 
-**Renders a single Mii image.**
+* **source**: Path to a `.ffsd` file or raw 96-byte data.
+* **out**: Output PNG path. If `None`, returns a Pillow Image.
+* **size**: Final image resolution.
+* **kwargs**: Extra render controls. Common options:
 
-* **source** **: Required. Can be a file path (**str**) to a **.ffsd** file or a raw **bytes** object of Mii data (must be 96 bytes).**
-* **out** **: Optional. The file path where the output PNG will be saved. If **None**, a Pillow **Image** object is returned instead.**
-* **size** **: The resolution of the output image (e.g., **512** for a 512x512 image).**
-* **zoom** **: Controls the camera's field of view. A higher value "zooms out," making the Mii appear smaller in the frame. Defaults to the **size** value.**
-* **expression** **: The Mii's facial expression. Use the **Expression** enum (e.g., **Expression.SMILE**, **Expression.ANGER**).**
-* **view** **: The part of the Mii to render. Use the **ViewType** enum (**ViewType.FACE** or **ViewType.BODY**).**
+  * `zoom`: Field-of-view control. Higher values pull the camera back.
+  * `expression`: A facial expression (`Expression.SMILE`, etc.).
+  * `view`: Which part to render (`ViewType.ALL_BODY`, etc.).
+  * `clothes_color`: Shirt color (`ClothesColor.BLUE`).
+  * `model_rot`: A rotation tuple `(X, Y, Z)`.
 
 ## Troubleshooting
 
-* **FileNotFoundError: FFLResHigh.dat not found** **: You must place **FFLResHigh.dat** inside the **FFL-Testing** directory before running the code.**
-* **RuntimeError: Build Failed** **: This means the C++ compilation failed. You are likely missing a prerequisite (CMake, g++, or OpenGL development libraries). Check the build logs in your console for specific error messages.**
-* **RuntimeError: Backend failed to start** **:**
-* **On Linux, this often happens in a "headless" environment (like a server or Docker container) that lacks a virtual display. Try running your script with **xvfb-run** (**sudo apt install xvfb**).**
-* **This can also happen if the **FFLResHigh.dat** file is corrupted, empty, or has incorrect read permissions.**
-* **git submodule** errors during installation **: Ensure you have Git installed and that your network connection can access GitHub.**
+* **Build failure**: Missing compilers or libraries. Check prerequisites.
+* **Backend fails to start**:
+
+  * Ensure `FFLResHigh.dat` exists in `FFL-Testing`.
+  * Check file permissions or corruption.
+  * Headless Linux may require `xvfb-run`.
+* **Git submodule errors**: Verify Git and network access.
 
 ## For Developers
 
-**To work on this project locally, clone the repository with the **--recursive** flag to fetch the C++ submodule:**
+Clone with the C++ submodule:
 
-```
-    git clone --recursive https://github.com/yourusername/miipy
-    cd miipy
-    pip install -e .
-  
+```sh
+git clone --recursive https://github.com/yourusername/miipy
+cd miipy
+pip install -e .
 ```
 
-**You can then trigger a manual rebuild at any time:**
+Rebuild manually:
 
+```sh
+python -m mii.builder
 ```
-    python -m miipy.builder
-  
+
+Do a full reset and rebuild:
+
+```sh
+python -m mii.builder --reset --resource path/to/FFLResHigh.dat
 ```
 
 ## Acknowledgements
 
-This library would not be possible without the incredible work of [Arian Kordi (ariankordi)](https://github.com/ariankordi) and the [FFL-Testing](https://github.com/ariankordi/FFL-Testing) library, which serves as the core rendering engine.
-
-**MiiPy
- is built upon the efforts of many others in the reverse-engineering and
- homebrew communities. Please support their work and follow their
-projects.**
+This project builds on the FFL-Testing work by Arian Kordi and the wider homebrew and reverse-engineering community.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+Released under the MIT License.
 
-**Disclaimer: The underlying **FFL-Testing** library and the required Nintendo assets (**FFLResHigh.dat**) are subject to their own licenses and terms of use. This project does not distribute any copyrighted Nintendo assets.**
+**Note:** Nintendo assets such as `FFLResHigh.dat` are not included and remain under their original licenses.
