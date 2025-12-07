@@ -44,17 +44,22 @@ class MiiPy:
         # Load Mii data
         if isinstance(source, str):
             with open(source, "rb") as f: mii_data = f.read(96)
-        else: mii_data = source
+        else:
+            mii_data = source
 
         settings = RenderSettings()
         
-        # Map user-friendly arguments to internal settings
-        # The 'zoom' kwarg controls the virtual render resolution for camera distance
+        # 1. Handle special 'zoom' argument for camera distance
+        # It controls the virtual render resolution.
         render_res = int(kwargs.pop('zoom', size))
         settings.resolution = render_res
         settings.tex_resolution = render_res
         
-        # Apply all other keyword arguments
+        # 2. Handle 'view' argument, mapping it to 'view_type'
+        if 'view' in kwargs:
+            settings.view_type = kwargs.pop('view')
+
+        # 3. Apply all other keyword arguments directly
         for k, v in kwargs.items():
             if hasattr(settings, k):
                 setattr(settings, k, v)
@@ -64,7 +69,7 @@ class MiiPy:
         # Get the raw image from the backend
         img = self.client.render_image(settings.pack(mii_data))
         
-        # Resize if we used the zoom feature
+        # Resize if we used the zoom feature (render_res != size)
         if img.width != size:
             img = img.resize((size, size), resample=Image.Resampling.LANCZOS)
         
@@ -81,6 +86,10 @@ class MiiPy:
         settings = RenderSettings()
         
         # Apply initial settings for the animation context
+        # Handle 'view' and other kwargs just like in render()
+        if 'view' in kwargs:
+            settings.view_type = kwargs.pop('view')
+        
         for k, v in kwargs.items():
             if hasattr(settings, k):
                 setattr(settings, k, v)
@@ -106,11 +115,13 @@ class AnimationContext:
     def frame(self, **changes):
         # Update settings for this specific frame
         for k, v in changes.items():
-            # Handle zoom alias within animation frames
+            # Handle aliases within animation frames
             if k == 'zoom':
                 render_res = int(v)
                 self.settings.resolution = render_res
                 self.settings.tex_resolution = render_res
+            elif k == 'view':
+                self.settings.view_type = v
             elif hasattr(self.settings, k):
                 setattr(self.settings, k, v)
         
