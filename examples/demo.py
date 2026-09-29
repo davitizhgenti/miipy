@@ -1,6 +1,8 @@
 import os
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
 # Import all necessary components from the library
 from mii import (
     MiiPy,
@@ -10,10 +12,9 @@ from mii import (
     PantsColor
 )
 
-# CONFIGURATION
-# The demo assumes this Mii file is in the project's root directory.
-MII_FILE = "mii_016.ffsd"
-# The library itself will automatically find FFLResHigh.dat inside the FFL-Testing folder.
+# Usage: python examples/demo.py [path/to/mii.ffsd]
+MII_FILE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
+    os.path.dirname(__file__), "..", "tests", "data", "dato.ffsd")
 
 def main():
     """
@@ -23,7 +24,7 @@ def main():
     # 1. Pre-flight Checks
     if not os.path.exists(MII_FILE):
         print(f"Error: Example Mii file not found at '{MII_FILE}'")
-        print("   Please place a valid .ffsd file in the project root.")
+        print("   Usage: python examples/demo.py path/to/mii.ffsd")
         return
 
     print("[*] Initializing MiiPy (this might build the backend on first run)...")

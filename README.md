@@ -164,6 +164,8 @@ with MiiPy() as r:
 
 `mii.retarget.pose_from_mediapipe()` builds a `Pose` from MediaPipe `pose_world_landmarks`. See `examples/vavatar.py` for a webcam demo that uses the MediaPipe Tasks API.
 
+![Reference poses, front and side](docs/pose_sheet_wiiu.png)
+
 `examples/pose_sheet.py` renders a sheet of reference poses for visual review. The tests are in `tests/`. Run them with `pytest tests`; the render tests skip themselves if the backend isn't built.
 
 The low-level `bones=[BoneOverride(Bone.X, ...)]` still works. Its Euler angles are in each bone's *parent rest axes*, and `ELBOW_x`, `SHOULDER_x` and `KNEE_x` in `Bone` are the joint *spheres*, not the bending segments.

@@ -69,6 +69,3 @@ class AssetManager:
             print(f"[MISSING] CSV not found at: {csv_path}")
 
         return runtime_cwd
-
-    def cleanup(self):
-        pass # Nothing to clean up

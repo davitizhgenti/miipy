@@ -42,10 +42,7 @@ class Expression:
     LIKE = 16
     LIKE_WINK_RIGHT = 17
     FRUSTRATED = 18
-    
-    # Convenience aliases
-    PUZZLED = 3  # Mapped to SORROW
-    HAPPY   = 7  # Alias for SMILE_OPEN_MOUTH (squinted happy eyes + open mouth)
+
 
     # Miitomo expressions (19-69) — require ShaderType.DEFAULT
     BORED           = 19   # Bored (closed mouth)
@@ -190,41 +187,3 @@ class BoneOverride:
     def __init__(self, bone, rotate=(0.0, 0.0, 0.0)):
         self.bone   = int(bone)
         self.rotate = tuple(float(v) for v in rotate)
-
-
-# Per-bone rotation limits: (x_min, x_max, y_min, y_max, z_min, z_max).
-# Used by constrain_bones() to prevent unrealistic poses from raw camera data.
-# Legacy: these are in each bone's parent axes and the KNEE entries target the
-# knee spheres (no visible effect). Use rig.JOINT_LIMITS / Pose.clamp() instead.
-BONE_CONSTRAINTS = {
-    Bone.ARM_L1:   (-10,  10, -30,  30, -120, 120),  # left upper arm
-    Bone.ARM_R1:   (-10,  10, -30,  30, -120, 120),  # right upper arm
-    Bone.ARM_L2:   (-10,  10, -10,  10,  -90,  90),  # left forearm
-    Bone.ARM_R2:   (-10,  10, -10,  10,  -90,  90),  # right forearm
-    Bone.FOOT_L1:  (-90,  90, -20,  20,  -20,  20),  # left thigh
-    Bone.FOOT_R1:  (-90,  90, -20,  20,  -20,  20),  # right thigh
-    Bone.KNEE_L:   (  0, 120,   0,   0,    0,   0),  # left knee (one-way bend)
-    Bone.KNEE_R:   (  0, 120,   0,   0,    0,   0),  # right knee
-    Bone.SKL_ROOT: (-15,  15, -15,  15,  -15,  15),  # body root
-}
-
-
-def constrain_bones(overrides):
-    """Clamp each BoneOverride's rotation to the anatomically safe range.
-
-    Returns a new list of BoneOverride objects with clamped values.
-    Bones not in BONE_CONSTRAINTS are passed through unchanged.
-    """
-    result = []
-    for bo in overrides:
-        if bo.bone in BONE_CONSTRAINTS:
-            xn, xx, yn, yx, zn, zx = BONE_CONSTRAINTS[bo.bone]
-            rx, ry, rz = bo.rotate
-            result.append(BoneOverride(bo.bone, rotate=(
-                max(xn, min(xx, rx)),
-                max(yn, min(yx, ry)),
-                max(zn, min(zx, rz)),
-            )))
-        else:
-            result.append(bo)
-    return result
