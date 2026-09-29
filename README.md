@@ -8,6 +8,7 @@ MiiPy is a Python library that produces clear and sharp images of Nintendo Miis.
 - **Clean Python API**: A single call renders a Mii.  
 - **Flexible Input**: Accepts `.ffsd` files or raw 96-byte data.  
 - **Rich Rendering Options**: Control size, zoom, expression, and view.  
+- **Full-Body Posing**: Pose arms, legs, torso and head with one consistent joint convention, animate with keyframes, or drive the Mii from a webcam.  
 - **Cross-Platform**: Works on Linux and Windows.  
 - **Managed Resources**: The backend starts and stops on its own and cleans up temporary files.
 
@@ -26,24 +27,31 @@ The backend is native code, so you need a working C++ build setup.
 ```sh
 sudo apt-get update
 sudo apt-get install git build-essential cmake libglfw3-dev libgl1-mesa-dev
-````
+```
 
 ## Installation
 
 > **Note:** Not yet published to PyPI.
 
 ```sh
-pip install miipy
+git clone --recursive https://github.com/davitizhgenti/miipy
+cd miipy
+pip install -e .
+python -m mii build --resource path/to/FFLResHigh.dat
 ```
 
-The first import clones the C++ sources and builds the backend. This runs once.
+The build applies miipy's backend changes (`patches/ffl-testing.patch`: bone
+rotations, mouth frames, eyebrow deltas, eye gaze, upper-body view) to the
+FFL-Testing submodule, then compiles it. If the backend is missing, `MiiPy()`
+also builds it on first use.
 
 ## Usage
 
 ### Step 1: Required Resource File
 
 You must supply **FFLResHigh.dat**, obtained from a legitimate Wii U dump.
-Place it inside the `FFL-Testing` folder before running any code.
+Copy it into the `FFL-Testing` folder, or pass `--resource` to `python -m mii build`.
+It is not included in this repository and must never be committed.
 
 ### Step 2: Basic Example
 
@@ -116,6 +124,50 @@ Render a single image.
   * `clothes_color`: Shirt color (`ClothesColor.BLUE`).
   * `model_rot`: A rotation tuple `(X, Y, Z)`.
 
+## Posing the Body
+
+Use `Pose` with `Joint` to pose full-body renders (`ViewType.ALL_BODY` / `UPPER_BODY`, Wii U and Switch bodies):
+
+```python
+from mii import MiiPy, Pose, Joint, ViewType
+
+pose = (Pose()
+        .aim(Joint.SHOULDER_L, [1, 0.3, 0])   # point the upper arm out and up
+        .twist(Joint.SHOULDER_L, -95)         # turn the elbow's bend plane upwards
+        .bend(Joint.ELBOW_L, 100)             # wave
+        .set(Joint.HIP_R, x=-30).bend(Joint.KNEE_R, 40))
+
+with MiiPy() as r:
+    r.render("mii.ffsd", out="wave.png", view=ViewType.ALL_BODY, pose=pose)
+    r.render("mii.ffsd", out="wave_mirrored.png", view=ViewType.ALL_BODY, pose=pose.mirror())
+```
+
+**Convention** (the same for every joint):
+
+* Rotations are in body axes at rest: +X = the Mii's left, +Y = up, +Z = forward.
+* Euler angles are intrinsic X→Y→Z in degrees.
+* The pivot is the joint. A joint's axes move with its parent, so an elbow bend stays an elbow bend however the shoulder is posed.
+* Left and right joints take the **same values** for a symmetric pose.
+
+**Joints:**
+* `ROOT`, `CHEST`, `NECK`
+* `SHOULDER_x` (upper arm), `ELBOW_x` (forearm, hinge), `WRIST_x`
+* `HIP_x` (thigh), `KNEE_x` (shin, hinge), `ANKLE_x`
+
+**Tools:**
+* `bend()` bends a hinge; a positive value is natural flexion.
+* `aim()` points a segment along a direction.
+* `aim_limb()` aims a whole arm or leg from two directions.
+* `clamp()` applies anatomical limits.
+* `lerp()` interpolates between poses for animation.
+* `world_positions()` returns joint positions (forward kinematics).
+
+`mii.retarget.pose_from_mediapipe()` builds a `Pose` from MediaPipe `pose_world_landmarks`. See `examples/vavatar.py` for a webcam demo that uses the MediaPipe Tasks API.
+
+`examples/pose_sheet.py` renders a sheet of reference poses for visual review. The tests are in `tests/`. Run them with `pytest tests`; the render tests skip themselves if the backend isn't built.
+
+The low-level `bones=[BoneOverride(Bone.X, ...)]` still works. Its Euler angles are in each bone's *parent rest axes*, and `ELBOW_x`, `SHOULDER_x` and `KNEE_x` in `Bone` are the joint *spheres*, not the bending segments.
+
 ## Troubleshooting
 
 * **Build failure**: Missing compilers or libraries. Check prerequisites.
@@ -128,24 +180,28 @@ Render a single image.
 
 ## For Developers
 
-Clone with the C++ submodule:
-
-```sh
-git clone --recursive https://github.com/yourusername/miipy
-cd miipy
-pip install -e .
-```
-
 Rebuild manually:
 
 ```sh
-python -m mii.builder
+python -m mii build
 ```
 
-Do a full reset and rebuild:
+Do a full reset (discards local submodule edits, then re-applies the patch) and rebuild:
 
 ```sh
-python -m mii.builder --reset --resource path/to/FFLResHigh.dat
+python -m mii build --reset --resource path/to/FFLResHigh.dat
+```
+
+Run the tests (`pip install pytest`). Render tests are skipped if the backend isn't built:
+
+```sh
+pytest tests
+```
+
+**Changing the C++ backend:** edit files in `FFL-Testing/`, then regenerate the patch:
+
+```sh
+git -C FFL-Testing diff --binary > patches/ffl-testing.patch
 ```
 
 ## Acknowledgements

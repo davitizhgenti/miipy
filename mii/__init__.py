@@ -7,12 +7,11 @@ from .process import BackendProcess
 from .client import FFLClient
 from .models import RenderSettings
 from .assets import AssetManager
+from .rig import Pose, Skeleton, JOINT_LIMITS
 
 # Re-export enums for user convenience
 from .constants import *
 
-# Configure a logger for the library
-logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger("miipy")
 
 class MiiPy:
@@ -84,17 +83,9 @@ class MiiPy:
         else: mii_data = source
 
         settings = RenderSettings()
-        
-        # Apply initial settings for the animation context
-        # Handle 'view' and other kwargs just like in render()
-        if 'view' in kwargs:
-            settings.view_type = kwargs.pop('view')
-        
-        for k, v in kwargs.items():
-            if hasattr(settings, k):
-                setattr(settings, k, v)
-        
-        return AnimationContext(self.client, settings, mii_data, size)
+        ctx = AnimationContext(self.client, settings, mii_data, size)
+        ctx.update(**kwargs)
+        return ctx
 
     def close(self):
         self.process.stop()
@@ -112,8 +103,8 @@ class AnimationContext:
         self.data = mii_data
         self.output_size = output_size
 
-    def frame(self, **changes):
-        # Update settings for this specific frame
+    def update(self, **changes):
+        """Change settings that persist for the following frames."""
         for k, v in changes.items():
             # Handle aliases within animation frames
             if k == 'zoom':
@@ -124,7 +115,12 @@ class AnimationContext:
                 self.settings.view_type = v
             elif hasattr(self.settings, k):
                 setattr(self.settings, k, v)
-        
+            else:
+                logger.warning(f"Ignoring unknown parameter '{k}'")
+
+    def frame(self, **changes):
+        # Update settings for this specific frame
+        self.update(**changes)
         img = self.client.render_image(self.settings.pack(self.data))
         
         # Resize to the final output size if necessary

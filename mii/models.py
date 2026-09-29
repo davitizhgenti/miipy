@@ -1,9 +1,12 @@
 # mii/models.py
+import logging
 import struct
 from .constants import (
     ViewType, Expression, ResourceType, ShaderType, 
     ClothesColor, PantsColor, ModelType
 )
+
+logger = logging.getLogger("miipy")
 
 def _clamp(val, min_v, max_v):
     return int(max(min_v, min(max_v, val)))
@@ -14,7 +17,9 @@ def _clamp_tuple(t, min_v, max_v):
 class RenderSettings:
     """Holds configuration for a render request."""
     # < = Little Endian
-    STRUCT_FORMAT = '<96sHBBHhBbBBIIIhhhhhhBBBBBB???bbbbbBBhhhB'
+    # Suffix 75h = boneRotations[25][3], h = mouthFrame, hh = eyeRotation[2],
+    #        bb  = eyebrowDeltaY + eyebrowDeltaRotate
+    STRUCT_FORMAT = '<96sHBBHhBbBBIIIhhhhhhBBBBBB???bbbbbBBhhhB75hhhhbb'
 
     def __init__(self):
         self.resolution = 512
@@ -44,6 +49,23 @@ class RenderSettings:
         self.aa_method = 0
         self.export_as_gltf = False
         self.expr_flags = (0, 0, 0)
+        self.bones = []           # list of BoneOverride (low-level, parent-axis Euler)
+        self.pose = None          # rig.Pose (preferred); explicit `bones` win per bone
+        self.mouth_frame = 0.0    # 0.0=closed, 1.0=open; switches to open-mouth expression
+        self.eye_rotation = (0.0, 0.0)  # (x, y) normalized ±1.0 (reserved for future)
+        self.eyebrow_delta_y      = 0   # int, -18..+18: shift eyebrow up/down from default
+        self.eyebrow_delta_rotate = 0   # int, -11..+11: tilt eyebrow
+
+    def _pose_overrides(self):
+        if self.pose is None:
+            return []
+        from .rig import Skeleton, SKELETON_BODY_NAMES, resolve_body_type
+        body = resolve_body_type(self.body_type, self.shader_type)
+        if body not in SKELETON_BODY_NAMES:
+            logger.warning("pose ignored: body type %d has no skeleton", body)
+            return []
+        skeleton = Skeleton.load(SKELETON_BODY_NAMES[body])
+        return self.pose.to_bone_overrides(skeleton)
 
     def pack(self, mii_data: bytes) -> bytes:
         if len(mii_data) != 96:
@@ -56,6 +78,18 @@ class RenderSettings:
         response_fmt = 2 # TGA
         if self.export_as_gltf:
             response_fmt = 1
+
+        # Build flat bone array: 25 bones * 3 axes, fixed-point degrees*10
+        bone_array = [0] * 75
+        for override in self._pose_overrides() + list(self.bones):
+            idx = int(override.bone)
+            if 0 <= idx < 25:
+                for axis, deg in enumerate(override.rotate[:3]):
+                    bone_array[idx * 3 + axis] = _clamp(round(deg * 10), -32768, 32767)
+
+        mouth = _clamp(int(self.mouth_frame * 1000), 0, 1000)
+        eye_x = _clamp(int(self.eye_rotation[0] * 1000), -1000, 1000)
+        eye_y = _clamp(int(self.eye_rotation[1] * 1000), -1000, 1000)
 
         return struct.pack(
             self.STRUCT_FORMAT,
@@ -83,5 +117,10 @@ class RenderSettings:
             _clamp(self.instance_count, 0, 255),
             _clamp(self.instance_rot_mode, 0, 255),
             *_clamp_tuple(self.light_direction, -32768, 32767),
-            _clamp(self.split_mode, 0, 255)
+            _clamp(self.split_mode, 0, 255),
+            *bone_array,  # 75 int16: boneRotations[25][3]
+            mouth,        # int16: mouthFrame
+            eye_x, eye_y, # int16 x2: eyeRotation[2]
+            _clamp(int(self.eyebrow_delta_y),      -18, 18),   # int8: eyebrowDeltaY
+            _clamp(int(self.eyebrow_delta_rotate), -11, 11),   # int8: eyebrowDeltaRotate
         )
