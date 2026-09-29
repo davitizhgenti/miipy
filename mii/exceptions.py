@@ -16,3 +16,6 @@ class BackendError(MiiError):
 class RenderError(MiiError):
     """Raised when network communication or image decoding fails."""
     pass
+class BuildError(MiiError):
+    """Raised when the C++ backend cannot be built."""
+    pass

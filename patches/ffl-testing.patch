@@ -1,0 +1,425 @@
+diff --git a/fs/content/shaders/FFLShader.frag b/fs/content/shaders/FFLShader.frag
+index d0d8e73..251fd56 100644
+--- a/fs/content/shaders/FFLShader.frag
++++ b/fs/content/shaders/FFLShader.frag
+@@ -189,6 +189,10 @@ uniform mediump vec4  u_rim_color;
+ // サンプラー
+ uniform sampler2D s_texture;
+ 
++// Eye gaze UV offset: non-zero only during eye draw calls (FFL_MODULATE_TYPE_EYE).
++// Shifts the pupil texture within the eye to simulate gaze direction.
++uniform vec2 u_eye_uv_offset;
++
+ out vec4 o_Color;
+ 
+ // -------------------------------------------------------
+@@ -218,30 +222,30 @@ void main()
+ //#elif defined(FFL_MODULATE_MODE_TEXTURE_DIRECT)
+     else if(u_mode == FFL_MODULATE_MODE_TEXTURE_DIRECT)
+     {
+-        color = texture(s_texture, v_texCoord);
++        color = texture(s_texture, v_texCoord + u_eye_uv_offset);
+     }
+ //#elif defined(FFL_MODULATE_MODE_RGB_LAYERED)
+     else if(u_mode == FFL_MODULATE_MODE_RGB_LAYERED)
+     {
+-        color = texture(s_texture, v_texCoord);
++        color = texture(s_texture, v_texCoord + u_eye_uv_offset);
+         color = vec4(color.r * u_const1.rgb + color.g * u_const2.rgb + color.b * u_const3.rgb, color.a);
+     }
+ //#elif defined(FFL_MODULATE_MODE_ALPHA)
+     else if(u_mode == FFL_MODULATE_MODE_ALPHA)
+     {
+-        color = texture(s_texture, v_texCoord);
++        color = texture(s_texture, v_texCoord + u_eye_uv_offset);
+         color = vec4(u_const1.rgb, color.r);
+     }
+ //#elif defined(FFL_MODULATE_MODE_LUMINANCE_ALPHA)
+     else if(u_mode == FFL_MODULATE_MODE_LUMINANCE_ALPHA)
+     {
+-        color = texture(s_texture, v_texCoord);
++        color = texture(s_texture, v_texCoord + u_eye_uv_offset);
+         color = vec4(color.g * u_const1.rgb, color.r);
+     }
+ //#elif defined(FFL_MODULATE_MODE_ALPHA_OPA)
+     else if(u_mode == FFL_MODULATE_MODE_ALPHA_OPA)
+     {
+-        color = texture(s_texture, v_texCoord);
++        color = texture(s_texture, v_texCoord + u_eye_uv_offset);
+         color = vec4(color.r * u_const1.rgb, 1.0);
+     }
+ //#endif
+diff --git a/include/BodyModel.h b/include/BodyModel.h
+index 7d4666d..0c0bf39 100644
+--- a/include/BodyModel.h
++++ b/include/BodyModel.h
+@@ -246,6 +246,12 @@ public:
+     rio::Matrix34f getHeadModelMatrix();
+ 
+     static rio::Vector3f calcBodyScale(f32 build, f32 height);
++
++    // Re-applies skeleton with per-bone rotation overrides.
++    // Call after initialize() to pose the skeleton.
++    // boneRotations[boneIndex][axis] is degrees * 10 fixed-point; zero = no override.
++    void applyBoneRotations(const int16_t boneRotations[25][3]);
++
+     void draw(rio::Matrix34f& model_mtx, rio::BaseMtx34f& view_mtx,
+     rio::BaseMtx44f& proj_mtx);
+ private:
+diff --git a/include/IShader.h b/include/IShader.h
+index 03c449a..11e8b6a 100644
+--- a/include/IShader.h
++++ b/include/IShader.h
+@@ -28,6 +28,8 @@ public:
+     virtual void resetUniformsToDefault() = 0;
+     virtual void setLightDirection(rio::Vector3f direction) = 0;
+     virtual void setBoneMatrix(rio::Matrix34f* mtx, s32 boneCount) = 0;
++    // Eye gaze: h/v in ±1.0 normalized range. Default no-op for simple shaders.
++    virtual void setEyeRotation(f32 h, f32 v) {}
+     virtual void applyAlphaTest(bool enable, rio::Graphics::CompareFunc func, f32 ref) const = 0;
+     virtual void applyAlphaTestEnable() const = 0;
+     virtual void applyAlphaTestDisable() const = 0;
+diff --git a/include/RenderRequest.h b/include/RenderRequest.h
+index 964f894..48d9f4f 100644
+--- a/include/RenderRequest.h
++++ b/include/RenderRequest.h
+@@ -44,4 +44,22 @@ PACKED(struct RenderRequest
+     uint8_t  instanceRotationMode; // model, camera, TODO
+     int16_t  lightDirection[3];    // unset if all negative, TODO
+     uint8_t  splitMode;      // none (default), front, back, both
++
++    // Bone rotation overrides: [boneIndex][axis x/y/z], degrees * 10 fixed-point.
++    // Zero means no override (default rest pose). Bone indices match VriableIconBodyBoneKind.
++    int16_t  boneRotations[25][3];
++
++    // Mouth animation: 0 = closed (use expression as-is),
++    // > 500 = open (switches to the open-mouth variant of the expression).
++    int16_t  mouthFrame;
++
++    // Eye look direction, normalized ±1000, [horizontal, vertical].
++    // Applied as UV offset on eye draw calls (shader uniform u_eye_uv_offset).
++    int16_t  eyeRotation[2];
++
++    // Eyebrow deltas applied to charInfo before model creation.
++    // Added to the Mii's natural eyebrowPositionY (clamped 0–18)
++    // and eyebrowRotate (clamped 0–11). Signed byte, ±18/±11 max useful range.
++    int8_t   eyebrowDeltaY;        // positive = raise, negative = furrow
++    int8_t   eyebrowDeltaRotate;   // signed tilt delta
+ });
+diff --git a/include/Shader.h b/include/Shader.h
+index 2dc777f..e859886 100644
+--- a/include/Shader.h
++++ b/include/Shader.h
+@@ -42,6 +42,7 @@ public:
+     void setBoneMatrix(rio::Matrix34f* mtx, s32 boneCount) override;
+ 
+     void setLightDirection(const rio::Vector3f direction) override;
++    void setEyeRotation(f32 h, f32 v) override;
+ 
+     void setDefaultLight(const rio::Vector3f direction, const FFLColor ambient, const FFLColor diffuse, const FFLColor specular)
+     {
+@@ -114,6 +115,7 @@ protected:
+         PIXEL_UNIFORM_RIM_COLOR,
+         PIXEL_UNIFORM_RIM_POWER,
+         PIXEL_UNIFORM_PARAMETER_MODE,
++        PIXEL_UNIFORM_EYE_UV_OFFSET,  // vec2: UV offset applied to eye shapes only
+         PIXEL_UNIFORM_MAX
+     };
+ 
+@@ -145,4 +147,7 @@ protected:
+     FFLColor                mLightAmbient;
+     FFLColor                mLightDiffuse;
+     FFLColor                mLightSpecular;
++
++    // Eye gaze UV offset (set per-request, used in setModulate_ per draw call)
++    rio::BaseVec2f          mEyeUvOffset;
+ };
+diff --git a/include/Types.h b/include/Types.h
+index 9c3143b..09da85e 100644
+--- a/include/Types.h
++++ b/include/Types.h
+@@ -102,6 +102,7 @@ enum ViewType
+     // nn::mii::VariableIconBody::StoreCameraMatrix
+     VIEW_TYPE_NNMII_VARIABLEICONBODY,
+     VIEW_TYPE_ALL_BODY_SUGAR,
++    VIEW_TYPE_UPPER_BODY,    // waist-up framing for V-Avatar
+ };
+ 
+ enum DrawStageMode
+diff --git a/src/BodyModel.cpp b/src/BodyModel.cpp
+index 49c999b..5db325a 100644
+--- a/src/BodyModel.cpp
++++ b/src/BodyModel.cpp
+@@ -336,6 +336,54 @@ void BodyModel::initializeSkeleton_()
+     calculateWorldMatrix_(mSkeletonMatrix, parentBoneIDs, mpBodyModel->mBoneCount, mBodyScale);
+ }
+ 
++void BodyModel::applyBoneRotations(const int16_t boneRotations[25][3])
++{
++    if (!mUseSkeleton)
++        return;
++
++    // Re-initialize local matrices from the rest pose.
++    const s32 boneCount = mpBodyModel->mBoneCount;
++    s32 parentBoneIDs[sizeof(mSkeletonMatrix) / sizeof(rio::Matrix34f)];
++    for (s32 i = 0; i < boneCount; i++)
++    {
++        mSkeletonMatrix[i] = mpBodyModel->mBones[i].localMatrix;
++        parentBoneIDs[i]   = mpBodyModel->mBones[i].parentID;
++    }
++
++    // Apply user-specified rotation overrides.
++    const s32 maxBone = (boneCount < (s32)VriableIconBodyBoneKind_End)
++                        ? boneCount : (s32)VriableIconBodyBoneKind_End;
++    for (s32 bone = 0; bone < maxBone; bone++)
++    {
++        if (boneRotations[bone][0] == 0 &&
++            boneRotations[bone][1] == 0 &&
++            boneRotations[bone][2] == 0)
++            continue; // no override for this bone
++
++        // Convert fixed-point (degrees*10) to radians.
++        constexpr f32 kDegTenToRad = M_PI / 1800.0f;
++        const f32 rx = boneRotations[bone][0] * kDegTenToRad;
++        const f32 ry = boneRotations[bone][1] * kDegTenToRad;
++        const f32 rz = boneRotations[bone][2] * kDegTenToRad;
++
++        // ZYX Euler order (game-rigging convention): compose Rx * Ry * Rz.
++        rio::Matrix34f rotX, rotY, rotZ, rotMtx;
++        rotX.makeR({ rx, 0.0f, 0.0f });
++        rotY.makeR({ 0.0f, ry, 0.0f });
++        rotZ.makeR({ 0.0f, 0.0f, rz });
++        rotMtx.setMul(rotX, rotY);
++        rotMtx.setMul(rotMtx, rotZ);
++
++        // Rotate in-place: preserve local translation, apply rotation to orientation.
++        const rio::Vector3f trans = GetMatrixTranslation(mSkeletonMatrix[bone]);
++        mSkeletonMatrix[bone].setMul(rotMtx, mSkeletonMatrix[bone]);
++        SetMatrixTranslation(mSkeletonMatrix[bone], trans);
++    }
++
++    // Recalculate world matrices with the modified local poses.
++    calculateWorldMatrix_(mSkeletonMatrix, parentBoneIDs, boneCount, mBodyScale);
++}
++
+ rio::mdl::Model* BodyModel::getBodyModel_()
+ {
+     FFLiCharInfo* pCharInfo = mpModel->getCharInfo();
+diff --git a/src/RootTask.cpp b/src/RootTask.cpp
+index d6db97f..c364340 100644
+--- a/src/RootTask.cpp
++++ b/src/RootTask.cpp
+@@ -602,7 +602,96 @@ bool RootTask::createModel_(RenderRequest* req, int socket_handle)
+         //expressionFlag.flags[0] = req->expressionFlag;
+         rio::MemUtil::copy(expressionFlag.flags, req->expressionFlag, sizeof(u32) * 3);
+     else
+-        FFLSetExpressionFlagIndex(&expressionFlag, req->expression, true); // set that bit
++    {
++        FFLExpression expr = static_cast<FFLExpression>(req->expression);
++
++        // If mouthFrame > 500, switch to the open-mouth variant of the expression.
++        if (req->mouthFrame > 500)
++        {
++            // Maps base expressions to their open-mouth equivalents.
++            // Covers all 70 FFL + Miitomo expressions.
++            static const FFLExpression kOpenMouth[FFL_EXPRESSION_MAX] = {
++                // FFL base expressions (0-18):
++                FFL_EXPRESSION_OPEN_MOUTH,            // 0  NORMAL
++                FFL_EXPRESSION_SMILE_OPEN_MOUTH,      // 1  SMILE
++                FFL_EXPRESSION_ANGER_OPEN_MOUTH,      // 2  ANGER
++                FFL_EXPRESSION_SORROW_OPEN_MOUTH,     // 3  SORROW
++                FFL_EXPRESSION_SURPRISE_OPEN_MOUTH,   // 4  SURPRISE
++                FFL_EXPRESSION_BLINK_OPEN_MOUTH,      // 5  BLINK
++                FFL_EXPRESSION_OPEN_MOUTH,            // 6  already open
++                FFL_EXPRESSION_SMILE_OPEN_MOUTH,      // 7  already open
++                FFL_EXPRESSION_ANGER_OPEN_MOUTH,      // 8  already open
++                FFL_EXPRESSION_SORROW_OPEN_MOUTH,     // 9  already open
++                FFL_EXPRESSION_SURPRISE_OPEN_MOUTH,   // 10 already open
++                FFL_EXPRESSION_BLINK_OPEN_MOUTH,      // 11 already open
++                FFL_EXPRESSION_WINK_LEFT_OPEN_MOUTH,  // 12 WINK_LEFT
++                FFL_EXPRESSION_WINK_RIGHT_OPEN_MOUTH, // 13 WINK_RIGHT
++                FFL_EXPRESSION_WINK_LEFT_OPEN_MOUTH,  // 14 already open
++                FFL_EXPRESSION_WINK_RIGHT_OPEN_MOUTH, // 15 already open
++                FFL_EXPRESSION_LIKE_WINK_LEFT,        // 16 LIKE (no open variant)
++                FFL_EXPRESSION_LIKE_WINK_RIGHT,       // 17
++                FFL_EXPRESSION_FRUSTRATED,            // 18 FRUSTRATED (no open variant)
++                // Miitomo expressions (19-69):
++                FFL_EXPRESSION_20,  // 19 Bored → Bored open mouth
++                FFL_EXPRESSION_20,  // 20 already open
++                FFL_EXPRESSION_22,  // 21 Sigh mouth straight → Sigh
++                FFL_EXPRESSION_22,  // 22 already open
++                FFL_EXPRESSION_24,  // 23 Disgusted mouth straight → Disgusted
++                FFL_EXPRESSION_24,  // 24 already open
++                FFL_EXPRESSION_26,  // 25 Love → Love mouth open
++                FFL_EXPRESSION_26,  // 26 already open
++                FFL_EXPRESSION_28,  // 27 Determined mouth straight → Determined
++                FFL_EXPRESSION_28,  // 28 already open
++                FFL_EXPRESSION_30,  // 29 Cry mouth straight → Cry
++                FFL_EXPRESSION_30,  // 30 already open
++                FFL_EXPRESSION_32,  // 31 Big smile mouth straight → Big smile
++                FFL_EXPRESSION_32,  // 32 already open
++                FFL_EXPRESSION_33,  // 33 Cheeky (duplicate pair, no open variant)
++                FFL_EXPRESSION_34,  // 34
++                FFL_EXPRESSION_36,  // 35 → open
++                FFL_EXPRESSION_36,  // 36 already open
++                FFL_EXPRESSION_38,  // 37 Smug → Smug mouth open
++                FFL_EXPRESSION_38,  // 38 already open
++                FFL_EXPRESSION_40,  // 39 Resolve → Resolve mouth open
++                FFL_EXPRESSION_40,  // 40 already open
++                FFL_EXPRESSION_41,  // 41 Unbelievable (duplicate pair)
++                FFL_EXPRESSION_42,  // 42
++                FFL_EXPRESSION_43,  // 43 Cunning (duplicate pair)
++                FFL_EXPRESSION_44,  // 44
++                FFL_EXPRESSION_45,  // 45 Raspberry (duplicate pair)
++                FFL_EXPRESSION_46,  // 46
++                FFL_EXPRESSION_47,  // 47 Innocent (duplicate pair)
++                FFL_EXPRESSION_48,  // 48
++                FFL_EXPRESSION_49,  // 49 Cat (duplicate pair)
++                FFL_EXPRESSION_50,  // 50
++                FFL_EXPRESSION_51,  // 51 Dog (duplicate pair)
++                FFL_EXPRESSION_52,  // 52
++                FFL_EXPRESSION_53,  // 53 Tasty (duplicate pair)
++                FFL_EXPRESSION_54,  // 54
++                FFL_EXPRESSION_56,  // 55 Money mouth straight → Money
++                FFL_EXPRESSION_56,  // 56 already open
++                FFL_EXPRESSION_58,  // 57 Confused mouth straight → Confused
++                FFL_EXPRESSION_58,  // 58 already open
++                FFL_EXPRESSION_60,  // 59 Cheerful mouth straight → Cheerful
++                FFL_EXPRESSION_60,  // 60 already open
++                FFL_EXPRESSION_61,  // 61 Normal duplicate
++                FFL_EXPRESSION_62,  // 62
++                FFL_EXPRESSION_64,  // 63 Grumble mouth straight → Grumble
++                FFL_EXPRESSION_64,  // 64 already open
++                FFL_EXPRESSION_66,  // 65 Moved mouth straight → Moved
++                FFL_EXPRESSION_66,  // 66 already open
++                FFL_EXPRESSION_68,  // 67 Singing mouth small → Singing
++                FFL_EXPRESSION_68,  // 68 already open
++                FFL_EXPRESSION_69,  // 69 Stunned (no pair)
++            };
++            if (static_cast<u32>(expr) < FFL_EXPRESSION_MAX)
++                expr = kOpenMouth[static_cast<u32>(expr)];
++        }
++
++        FFLSetExpressionFlagIndex(&expressionFlag, expr, true); // set that bit
++    }
++
++    // Eye gaze stored here; shader call happens below after bind (see setEyeRotation).
+ 
+     FFLResolution texResolution;
+     if (req->texResolution < 0)
+@@ -692,6 +781,21 @@ bool RootTask::createModel_(RenderRequest* req, int socket_handle)
+         charInfo.height = 83;
+     }
+ 
++    // Eyebrow deltas: shift eyebrowPositionY (0-18) and eyebrowRotate (0-11)
++    // before model creation so the mask textures reflect the change.
++    if (req->eyebrowDeltaY != 0)
++    {
++        const s32 newY = charInfo.parts.eyebrowPositionY
++                       + static_cast<s32>(req->eyebrowDeltaY);
++        charInfo.parts.eyebrowPositionY = std::max(0, std::min(18, newY));
++    }
++    if (req->eyebrowDeltaRotate != 0)
++    {
++        const s32 newRot = charInfo.parts.eyebrowRotate
++                         + static_cast<s32>(req->eyebrowDeltaRotate);
++        charInfo.parts.eyebrowRotate = std::max(0, std::min(11, newRot));
++    }
++
+     if (!mpModel->initialize(arg, *mpShaders[whichShader]))
+     {
+         errMsg = "FFLInitCharModelCPUStep FAILED while initializing model: "
+@@ -879,6 +983,19 @@ void RootTask::setViewTypeParams(ViewType viewType, rio::LookAtCamera* pCamera,
+             // to Mii Maker renders when camera is farther?
+             break;
+         }
++        case VIEW_TYPE_UPPER_BODY:
++        {
++            // Waist-up framing for V-Avatar: shows head and arms, cuts feet.
++            // At 15° FOV and z=480, vertical extent ≈ 126 units centred at y=100
++            // → covers approximately y∈37–163 (hip to well above head).
++            *projMtx = mProjMtxIconBody;
++            *proj    = mProjIconBody;
++            *isCameraPosAbsolute = true;
++            pCamera->pos() = { 0.0f, 100.0f, 480.0f };
++            pCamera->at()  = { 0.0f, 100.0f,   0.0f };
++            pCamera->setUp({ 0.0f, 1.0f, 0.0f });
++            break;
++        }
+         default:
+         {
+             // default, face only (FFLMakeIcon)
+@@ -1140,6 +1257,11 @@ void RootTask::handleRenderRequest(RenderRequest* req, Model** ppModel, int sock
+     {
+         // Initializes scale factors:
+         pModel->mpBody->initialize(pModel, pantsColor);
++        // Apply per-bone rotation overrides from the request (no-op if all zero).
++        // Copy to aligned local array first (req is PACKED so boneRotations may be unaligned).
++        int16_t alignedBoneRot[25][3];
++        rio::MemUtil::copy(alignedBoneRot, req->boneRotations, sizeof(alignedBoneRot));
++        pModel->mpBody->applyBoneRotations(alignedBoneRot);
+     }
+ 
+     camera.pos() = position;
+@@ -1327,6 +1449,11 @@ void RootTask::handleRenderRequest(RenderRequest* req, Model** ppModel, int sock
+         pModel->getShader()->setLightDirection(lightDirection);
+     }
+ 
++    // Eye gaze direction: convert fixed-point int16 (±1000) to normalized float (±1.0).
++    pModel->getShader()->setEyeRotation(
++        req->eyeRotation[0] / 1000.0f,
++        req->eyeRotation[1] / 1000.0f);
++
+     DrawStageMode drawStages = static_cast<DrawStageMode>(req->drawStageMode);
+ 
+     if (drawStages == DRAW_STAGE_MODE_BODY_INV_DEPTH_MASK)
+diff --git a/src/Shader.cpp b/src/Shader.cpp
+index 2211a7a..735a611 100644
+--- a/src/Shader.cpp
++++ b/src/Shader.cpp
+@@ -264,6 +264,7 @@ Shader::Shader()
+     , mLightAmbient(mDefaultLightAmbient)
+     , mLightDiffuse(mDefaultLightDiffuse)
+     , mLightSpecular(mDefaultLightSpecular)
++    , mEyeUvOffset{ 0.0f, 0.0f }
+ {
+     rio::MemUtil::set(mVertexUniformLocation, u8(-1), sizeof(mVertexUniformLocation));
+     rio::MemUtil::set(mPixelUniformLocation, u8(-1), sizeof(mPixelUniformLocation));
+@@ -327,6 +328,7 @@ void Shader::initialize()
+     mPixelUniformLocation[PIXEL_UNIFORM_RIM_POWER]                  = mShader.getFragmentUniformLocation("u_rim_power");
+     // Custom uniform to set values previously handled by v_color if the color attribute is constant (stride = 0).
+     mPixelUniformLocation[PIXEL_UNIFORM_PARAMETER_MODE]             = mShader.getFragmentUniformLocation("u_parameter_mode");
++    mPixelUniformLocation[PIXEL_UNIFORM_EYE_UV_OFFSET]              = mShader.getFragmentUniformLocation("u_eye_uv_offset");
+ 
+     mSamplerLocation = mShader.getFragmentSamplerLocation("s_texture");
+ 
+@@ -432,6 +434,14 @@ void Shader::setLightDirection(const rio::Vector3f direction)
+     mLightDir = newLightDirection;
+ }
+ 
++void Shader::setEyeRotation(f32 h, f32 v)
++{
++    // Scale ±1.0 normalized gaze to UV offset range.
++    // ±0.10 UV units gives natural-looking pupil displacement.
++    static constexpr f32 kScale = 0.10f;
++    mEyeUvOffset = { h * kScale, v * kScale };
++}
++
+ #ifdef FFL_USE_ADJUST_MTX
+ rio::Matrix34f g_MV = rio::Matrix34f::ident;
+ #endif
+@@ -567,6 +577,14 @@ void Shader::setModulate_(const FFLModulateParam& modulateParam)
+     setModulateMode_(modulateParam.mode); // Modulate mode
+     setMaterial_(modulateParam.type); // Material shader uniforms
+ 
++    // Upload eye UV offset only for eye shapes; zero for everything else.
++    {
++        const rio::BaseVec2f offset = (modulateParam.type == FFL_MODULATE_TYPE_EYE)
++            ? mEyeUvOffset
++            : rio::BaseVec2f{ 0.0f, 0.0f };
++        mShader.setUniform(offset, u32(-1), mPixelUniformLocation[PIXEL_UNIFORM_EYE_UV_OFFSET]);
++    }
++
+     // if you want to change colors based on modulateParam.type
+     // FFL_MODULATE_TYPE_SHAPE_HAIR
+     // hair color: pColorR/const1

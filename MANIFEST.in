@@ -1,6 +1,13 @@
-# Include the entire FFL-Testing submodule
-recursive-include FFL-Testing *
-
-# Include top-level files
 include README.md
 include LICENSE
+include requirements.txt
+recursive-include patches *.patch
+
+# The FFL-Testing sources are built locally; never ship build output
+# or the Nintendo resource file.
+recursive-include FFL-Testing *
+prune FFL-Testing/build
+exclude FFL-Testing/FFLResHigh.dat
+exclude FFL-Testing/ffl_testing_2
+global-exclude *.o *.a *.pyc
+global-exclude .git

@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
+
+# Nintendo resource: never commit (see README)
+FFLResHigh.dat
+AFLResHigh*.dat
+
+# Backend build output
+ffl_testing_2
+ffl_testing_2.exe
+
+# Generated renders (keep docs images, golden test images and test Miis)
+*.png
+*.gif
+*.tga
+*.ffsd
+!docs/*.png
+!tests/golden/*.png
+!tests/data/*.ffsd

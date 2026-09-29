@@ -11,7 +11,7 @@ class CustomBuild(build_py):
         # Now, run custom C++ builder
         print("Running MiiPy C++ Backend Builder")
         try:
-            from miipy.builder import build_backend
+            from mii.builder import build_backend
             build_backend()
         except Exception as e:
             print(f"❌ C++ build failed: {e}")
@@ -30,12 +30,13 @@ setup(
     description="A Python library to render Nintendo Miis by compiling the FFL-Testing backend.",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/miipy",
+    url="https://github.com/davitizhgenti/miipy",
     packages=find_packages(),
     include_package_data=True, # This tells setuptools to use MANIFEST.in
     
     install_requires=[
         "pillow",
+        "numpy",
     ],
     
     python_requires=">=3.7",

@@ -1,130 +1,99 @@
+# mii/builder.py
 import os
 import subprocess
-import sys
 import platform
 import shutil
-import stat
 import logging
-import argparse
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(message)s')
-logger = logging.getLogger(__name__)
+from .exceptions import BuildError
+
+logger = logging.getLogger("miipy")
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SOURCE_DIR = os.path.join(PROJECT_ROOT, "FFL-Testing")
+BUILD_DIR = os.path.join(SOURCE_DIR, "build")
+
 
 def check_tool(name):
     if not shutil.which(name):
-        raise RuntimeError(f"Error: '{name}' is not installed or not in PATH.")
+        raise BuildError(f"'{name}' is not installed or not in PATH.")
 
-def reset_submodule(project_root):
-    """
-    Resets the FFL-Testing submodule to a clean state.
-    """
+
+def reset_submodule():
+    """Resets the FFL-Testing submodule to a clean state."""
+    check_tool("git")
+    if not os.path.exists(os.path.join(PROJECT_ROOT, ".git")):
+        raise BuildError("Not a git repository. Cannot reset submodule.")
     logger.info("[-] Resetting FFL-Testing submodule...")
     try:
-        # De-initialize to remove local config
-        subprocess.check_call(
-            ["git", "submodule", "deinit", "-f", "FFL-Testing"], 
-            cwd=project_root, stdout=subprocess.DEVNULL
-        )
-        # Update to fetch fresh copy
-        subprocess.check_call(
-            ["git", "submodule", "update", "--init", "--recursive", "--force"], 
-            cwd=project_root
-        )
-        logger.info("Submodule reset successful.")
+        subprocess.check_call(["git", "submodule", "deinit", "-f", "FFL-Testing"],
+                              cwd=PROJECT_ROOT, stdout=subprocess.DEVNULL)
+        subprocess.check_call(["git", "submodule", "update", "--init", "--recursive", "--force"],
+                              cwd=PROJECT_ROOT)
     except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to reset submodule: {e}")
-        sys.exit(1)
+        raise BuildError(f"Failed to reset submodule: {e}") from e
 
-def install_resource(source_path, submodule_dir):
-    """
-    Copies the user provided resource file to FFL-Testing/FFLResHigh.dat
-    """
+
+def install_resource(source_path):
+    """Copies the user provided resource file to FFL-Testing/FFLResHigh.dat."""
     if not os.path.exists(source_path):
-        logger.error(f"Resource file not found: {source_path}")
-        sys.exit(1)
+        raise BuildError(f"Resource file not found: {source_path}")
+    target_path = os.path.join(SOURCE_DIR, "FFLResHigh.dat")
+    logger.info(f"[-] Installing resource {source_path} -> {target_path}")
+    shutil.copy2(source_path, target_path)
 
-    target_path = os.path.join(submodule_dir, "FFLResHigh.dat")
-    
-    logger.info(f"[-] Installing resource...")
-    logger.info(f"    Source: {source_path}")
-    logger.info(f"    Dest:   {target_path}")
-    
-    try:
-        shutil.copy2(source_path, target_path)
-        logger.info("Resource installed.")
-    except Exception as e:
-        logger.error(f"Failed to copy resource: {e}")
-        sys.exit(1)
 
-def build_backend():
+def apply_patches():
+    """Apply miipy's changes (patches/*.patch) to the FFL-Testing submodule.
+
+    Skips patches that are already applied, so this is safe to run every build.
     """
-    Parses arguments and runs the build process.
-    """
-    parser = argparse.ArgumentParser(description="MiiPy Backend Builder")
-    parser.add_argument("--reset", action="store_true", help="Reset git submodule to clean state before building")
-    parser.add_argument("--resource", type=str, help="Path to your FFLResHigh.dat file (will be copied)")
-    
-    # Allow calling without args if just rebuilding
-    args = parser.parse_args()
-
-    # PATHS
-    package_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(package_dir)
-    source_dir = os.path.join(project_root, "FFL-Testing")
-    build_dir = os.path.join(source_dir, "build")
-
-    logger.info("Mii Backend Builder\n")
-
-    # 1. Validation & Tools
-    check_tool("cmake")
-    if args.reset:
+    patch_dir = os.path.join(PROJECT_ROOT, "patches")
+    patches = sorted(p for p in os.listdir(patch_dir) if p.endswith(".patch")) \
+        if os.path.isdir(patch_dir) else []
+    for name in patches:
+        path = os.path.join(patch_dir, name)
+        applied = subprocess.run(["git", "apply", "--reverse", "--check", path],
+                                 cwd=SOURCE_DIR, capture_output=True).returncode == 0
+        if applied:
+            continue
         check_tool("git")
+        logger.info(f"[-] Applying {name}...")
+        result = subprocess.run(["git", "apply", path], cwd=SOURCE_DIR,
+                                capture_output=True, text=True)
+        if result.returncode != 0:
+            raise BuildError(f"Could not apply {name} to FFL-Testing "
+                             f"(submodule at a different commit?):\n{result.stderr}")
 
-    # 2. Reset Submodule (Optional)
-    if args.reset:
-        if not os.path.exists(os.path.join(project_root, ".git")):
-            logger.error("Not a git repository. Cannot reset submodule.")
-            sys.exit(1)
-        reset_submodule(project_root)
 
-    # 3. Install Resource (Optional but recommended)
-    if args.resource:
-        install_resource(args.resource, source_dir)
-    
-    # 4. Check Resource Existence (Critical)
-    final_res_path = os.path.join(source_dir, "FFLResHigh.dat")
-    if not os.path.exists(final_res_path):
-        logger.error("Build Error: 'FFLResHigh.dat' is missing in FFL-Testing.")
-        logger.error("Usage: python -m mii.builder --resource <path/to/dat>")
-        sys.exit(1)
+def build_backend(reset=False, resource=None):
+    """Configure and compile the C++ backend. Raises BuildError on failure."""
+    logger.info("Mii Backend Builder")
+    check_tool("cmake")
+    if reset:
+        reset_submodule()
+    if resource:
+        install_resource(resource)
 
-    # 5. CMake Configuration
-    if not os.path.exists(os.path.join(source_dir, "CMakeLists.txt")):
-        logger.error("FFL-Testing source missing. Try running with --reset")
-        sys.exit(1)
+    if not os.path.exists(os.path.join(SOURCE_DIR, "FFLResHigh.dat")):
+        raise BuildError("'FFLResHigh.dat' is missing in FFL-Testing. "
+                         "Run: python -m mii build --resource <path/to/FFLResHigh.dat>")
+    if not os.path.exists(os.path.join(SOURCE_DIR, "CMakeLists.txt")):
+        raise BuildError("FFL-Testing source missing. Try: python -m mii build --reset")
+    apply_patches()
 
-    logger.info("[*] Compiling Mii Backend...")
-    
-    cmake_args = [
-        f"-S {source_dir}", f"-B {build_dir}",
-        "-DCMAKE_BUILD_TYPE=Release", "-DRIO_NO_CLIP_CONTROL=ON",
-        "-DCMAKE_CXX_FLAGS='-DNDEBUG -O3'"
-    ]
+    configure = ["cmake", "-S", SOURCE_DIR, "-B", BUILD_DIR,
+                 "-DCMAKE_BUILD_TYPE=Release", "-DRIO_NO_CLIP_CONTROL=ON",
+                 "-DCMAKE_CXX_FLAGS=-DNDEBUG -O3"]
     if platform.system() == "Linux":
-        cmake_args.append("-DRIO_USE_HEADLESS_GLFW=ON")
+        configure.append("-DRIO_USE_HEADLESS_GLFW=ON")
 
     try:
         logger.info("[-] Running CMake Configure...")
-        subprocess.check_call(f"cmake {' '.join(cmake_args)}", shell=True)
-        
+        subprocess.check_call(configure)
         logger.info("[-] Running CMake Build...")
-        subprocess.check_call(f"cmake --build {build_dir} -j 4", shell=True)
-    except subprocess.CalledProcessError:
-        logger.error("Build Failed. Check logs.")
-        sys.exit(1)
+        subprocess.check_call(["cmake", "--build", BUILD_DIR, "-j", "4"])
+    except subprocess.CalledProcessError as e:
+        raise BuildError("Build failed. Check the compiler output above.") from e
 
     logger.info("Build Complete.")
-
-if __name__ == "__main__":
-    build_backend()
