@@ -28,11 +28,12 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from mii import MiiPy, ViewType, Expression, Joint, Pose  # noqa: E402
 from mii.collision import CollisionModel, HEAD  # noqa: E402
-from mii.rig import euler_to_matrix, shortest_arc  # noqa: E402
+from mii.rig import euler_to_matrix, matrix_to_quat, quat_to_matrix, shortest_arc, slerp  # noqa: E402
 
 PANEL = 540
 SCALE = (PANEL - 60) / 21.0          # pixels per skeleton unit (feet to top of head ~ 20.5)
 FLOOR = PANEL - 30                   # screen y of the skeleton's y = 0
+HEAD_LEVELING = 0.6                  # how much the head stays level when leaning the chest
 EXPRESSIONS = [Expression.NORMAL, Expression.SMILE, Expression.BIG_SMILE, Expression.SURPRISE,
                Expression.ANGER, Expression.SORROW, Expression.CHEERFUL, Expression.LOVE]
 EXPRESSION_NAMES = {v: k for k, v in vars(Expression).items() if k.isupper()}
@@ -129,6 +130,14 @@ class Editor:
             carried = world[parent][:3, :3] @ sk.rest_world[parent][:3, :3].T
             twist = self._twist(joint)
             aim = shortest_arc(rest_dir, carried.T @ (target - pivot))
+            if joint == Joint.CHEST:
+                # Keep the head mostly level while the upper body leans,
+                # like a person does (it would otherwise swing with the chest).
+                chest_old, neck_old = self.pose.rotation(Joint.CHEST), self.pose.rotation(Joint.NECK)
+                chest_new = aim @ twist
+                level = chest_new.T @ chest_old @ neck_old
+                q = slerp(matrix_to_quat(neck_old), matrix_to_quat(level), HEAD_LEVELING)
+                self.pose.set_rotation(Joint.NECK, quat_to_matrix(q))
             self.pose.set_rotation(joint, aim @ twist)
         if self.symmetric and name[-2:] in ("_L", "_R"):
             src, dst = ("L", "R") if name.endswith("_L") else ("R", "L")

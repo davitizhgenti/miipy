@@ -52,17 +52,37 @@ _HINGE_TARGET = {
     Joint.KNEE_L:  np.array([0.0, 0.0, -1.0]),  # foot goes back
 }
 
-# Hinges: (min, max) bend in degrees. Ball joints: max rotation angle.
+class SwingTwist:
+    """Per-direction limits (degrees) for a ball joint, in body axes.
+
+    The rotation is split into a twist about the joint's own axis (the
+    limb's length, or up for the torso) and a swing, whose components
+    about body X (forward/back) and Z (sideways) are limited separately.
+    Values are for the left side; the right side is mirrored.
+    """
+
+    def __init__(self, x, z, twist):
+        self.x, self.z, self.twist = x, z, twist
+
+
+# Hinges: (min, max) bend. Ball joints: max rotation angle, or SwingTwist.
 JOINT_LIMITS = {
     Joint.ELBOW_L: (0.0, 150.0),
     Joint.KNEE_L:  (0.0, 150.0),
     Joint.SHOULDER_L: 180.0,
     Joint.WRIST_L:    80.0,
-    Joint.HIP_L:      120.0,
+    # -x swings the leg forward, +z outwards: a leg can't go far back or
+    # cross far over the other one.
+    Joint.HIP_L:      SwingTwist(x=(-125.0, 30.0), z=(-20.0, 50.0), twist=(-40.0, 40.0)),
     Joint.ANKLE_L:    45.0,
     Joint.NECK:       60.0,
-    Joint.CHEST:      45.0,
+    # +x leans forward, z sideways, twist turns the upper body.
+    Joint.CHEST:      SwingTwist(x=(-15.0, 40.0), z=(-25.0, 25.0), twist=(-35.0, 35.0)),
 }
+
+# Bones that follow a joint by a fraction: the shirt's waist seam bends with
+# the chest so the lower shirt doesn't shear.
+_FOLLOWERS = {15: (Joint.CHEST, 0.5)}
 
 _SKELETON_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -488,7 +508,9 @@ class Pose:
             lim = limits.get(_limit_key(j))
             if lim is None:
                 continue
-            if isinstance(lim, tuple):  # hinge: keep only the bend component
+            if isinstance(lim, SwingTwist):
+                p._rot[j] = self._clamp_swing_twist(j, r, lim)
+            elif isinstance(lim, tuple):  # hinge: keep only the bend component
                 axis = self.skeleton.hinge_axis(j)
                 q = matrix_to_quat(r)
                 angle = math.degrees(2 * math.atan2(np.dot(q[1:], axis), q[0]))
@@ -499,6 +521,32 @@ class Pose:
                 if angle > lim:
                     p._rot[j] = axis_angle(axis, lim)
         return p
+
+    def _twist_axis(self, joint):
+        if _limit_key(joint) in SEGMENT_END:
+            return self.skeleton.rest_direction(_limit_key(joint))
+        return np.array([0.0, 1.0, 0.0])
+
+    def _clamp_swing_twist(self, joint, r, lim):
+        axis = self._twist_axis(joint)
+        q = matrix_to_quat(r)
+        if q[0] < 0:
+            q = -q
+        # Twist = rotation about `axis`; swing = the rest (r = swing @ twist).
+        tw = np.array([q[0], *(axis * np.dot(q[1:], axis))])
+        n = np.linalg.norm(tw)
+        tw = tw / n if n > 1e-9 else np.array([1.0, 0.0, 0.0, 0.0])
+        twist_deg = math.degrees(2 * math.atan2(np.dot(tw[1:], axis), tw[0]))
+        swing = r @ quat_to_matrix(tw).T
+        sw_axis, sw_deg = _to_axis_angle(swing)
+        w = sw_axis * sw_deg  # swing as a rotation vector (degrees)
+        wx = min(max(w[0], lim.x[0]), lim.x[1])
+        wz = min(max(w[2], lim.z[0]), lim.z[1])
+        # A swing is perpendicular to the twist axis: rebuild its y part.
+        w = np.array([wx, -(wx * axis[0] + wz * axis[2]) / axis[1], wz])
+        swing = axis_angle(w, np.linalg.norm(w)) if np.linalg.norm(w) > 1e-9 else np.eye(3)
+        twist = axis_angle(axis, min(max(twist_deg, lim.twist[0]), lim.twist[1]))
+        return swing @ twist
 
     # --- output ------------------------------------------------------------
 
@@ -511,7 +559,16 @@ class Pose:
             wp = sk.rest_world[parent][:3, :3]
             r_parent = wp.T @ self.body_rotation(j) @ wp
             out[int(j)] = r_parent @ sk.rest_local[j][:3, :3]
+        for bone, (joint, f) in _FOLLOWERS.items():
+            if joint in self._rot:
+                wp = sk.rest_world[sk.parents[bone]][:3, :3]
+                r_parent = wp.T @ self._follow(joint, f) @ wp
+                out[bone] = r_parent @ sk.rest_local[bone][:3, :3]
         return out
+
+    def _follow(self, joint, fraction):
+        q = slerp(np.array([1.0, 0.0, 0.0, 0.0]), matrix_to_quat(self.body_rotation(joint)), fraction)
+        return quat_to_matrix(q)
 
     def world_matrices(self, skeleton=None):
         sk = skeleton or self.skeleton
@@ -530,6 +587,10 @@ class Pose:
             wp = sk.rest_world[sk.parents[j]][:3, :3]
             r_parent = wp.T @ self.body_rotation(j) @ wp
             out.append(BoneOverride(int(j), rotate=matrix_to_euler(r_parent)))
+        for bone, (joint, f) in _FOLLOWERS.items():
+            if joint in self._rot:
+                wp = sk.rest_world[sk.parents[bone]][:3, :3]
+                out.append(BoneOverride(bone, rotate=matrix_to_euler(wp.T @ self._follow(joint, f) @ wp)))
         return out
 
 

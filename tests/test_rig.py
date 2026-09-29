@@ -261,3 +261,41 @@ def test_pose_dict_roundtrip():
     again = Pose.from_dict(pose.to_dict())
     for j in Joint:
         assert np.allclose(again.rotation(j), pose.rotation(j))
+
+
+def hip_swing(pose, joint):
+    """Thigh direction's forward and outward angles (degrees) in body space."""
+    pos = pose.world_positions()
+    d = pos[{Joint.HIP_L: Joint.KNEE_L, Joint.HIP_R: Joint.KNEE_R}[joint]] - pos[joint]
+    side = d[0] if joint == Joint.HIP_L else -d[0]
+    return math.degrees(math.atan2(d[2], -d[1])), math.degrees(math.atan2(side, -d[1]))
+
+
+@pytest.mark.parametrize("side", ["L", "R"])
+def test_hip_cannot_go_far_back_or_cross_over(side):
+    hip = Joint[f"HIP_{side}"]
+    rest_fwd, rest_out = hip_swing(Pose(), hip)
+    back, _ = hip_swing(Pose().set(hip, x=80).clamp(), hip)
+    # limits act on the swing rotation, so projected angles land within a few degrees
+    assert back - rest_fwd > -33                      # extension stops at ~30 degrees
+    _, inward = hip_swing(Pose().set(hip, z=-60 if side == "L" else 60).clamp(), hip)
+    assert inward - rest_out > -23                     # adduction stops at ~20 degrees
+
+
+def test_hip_forward_and_outward_are_free():
+    for p in (Pose().set(Joint.HIP_L, x=-90), Pose().set(Joint.HIP_L, z=45),
+              Pose().set(Joint.HIP_L, x=-60, z=30)):
+        assert np.allclose(p.clamp().rotation(Joint.HIP_L), p.rotation(Joint.HIP_L), atol=1e-6)
+
+
+def test_chest_lean_limits():
+    c = Pose().set(Joint.CHEST, z=40).clamp()
+    assert abs(abs(math.degrees(math.asin(c.body_rotation(Joint.CHEST)[0, 1]))) - 25) < 0.5
+    assert np.allclose(Pose().set(Joint.CHEST, x=30).clamp().rotation(Joint.CHEST),
+                       Pose().set(Joint.CHEST, x=30).rotation(Joint.CHEST), atol=1e-6)
+
+
+def test_waist_seam_follows_chest():
+    p = Pose().set(Joint.CHEST, z=20)
+    overrides = {o.bone: o.rotate for o in p.to_bone_overrides()}
+    assert 15 in overrides and abs(overrides[15][2] - 10) < 0.5
