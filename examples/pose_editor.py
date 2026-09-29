@@ -244,6 +244,15 @@ class Editor:
         self.saved += 1
 
 
+def window_open(name):
+    # Closing the window with its X button makes some OpenCV backends (Qt)
+    # raise here instead of reporting it as hidden.
+    try:
+        return cv2.getWindowProperty(name, cv2.WND_PROP_VISIBLE) >= 1
+    except cv2.error:
+        return False
+
+
 def main():
     mii = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
         os.path.dirname(__file__), "..", "tests", "data", "dato.ffsd")
@@ -254,7 +263,7 @@ def main():
         while True:
             cv2.imshow("Mii Pose Editor", editor.frame())
             key = cv2.waitKey(15) & 0xFF
-            if key == ord("q") or cv2.getWindowProperty("Mii Pose Editor", cv2.WND_PROP_VISIBLE) < 1:
+            if key == ord("q") or not window_open("Mii Pose Editor"):
                 break
             if key != 255:
                 editor.on_key(key)
