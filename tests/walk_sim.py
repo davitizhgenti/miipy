@@ -215,7 +215,9 @@ def main():
             screen.blit(shadow, shadow.get_rect(center=(W / 2, FEET_Y)))
             screen.blit(sprite, (W / 2 - MII_SIZE / 2, FEET_Y - feet_row + bob * px_per_unit))
             for x, z in order:
-                if z > pos[1]:
+                # Trees between the camera and the Mii would hide it: only
+                # draw those that stand off to the side.
+                if z > pos[1] and abs(x - pos[0]) > 7.0:
                     draw_tree(screen, cam, pos, x, z)
             draw_minimap(screen, pos, heading, trail, trees)
             hud = f"WASD walk   Shift run   Q quit      {speed_now:4.1f} u/s   {clock.get_fps():4.1f} fps"

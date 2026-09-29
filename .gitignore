@@ -22,5 +22,6 @@ ffl_testing_2.exe
 *.tga
 *.ffsd
 !docs/*.png
+!docs/*.gif
 !tests/golden/*.png
 !tests/data/*.ffsd

@@ -1,37 +1,30 @@
 # MiiPy
 
-MiiPy is a Python library that produces clear and sharp images of Nintendo Miis. It wraps the FFL-Testing C++ backend and hides the strain of building and running native code. It lets you focus on the task, not the tools.
+MiiPy is a Python library that renders Nintendo Miis, from face icons to fully posed and animated bodies. It wraps the [FFL-Testing](https://github.com/ariankordi/FFL-Testing) C++ renderer and handles building and running it for you.
+
+![Five full-body Miis: standing, waving, arms up, walking and dancing](docs/hero.png)
 
 ## Features
 
-- **Automatic Backend Build**: The renderer builds itself on first use.  
-- **Clean Python API**: A single call renders a Mii.  
-- **Flexible Input**: Accepts `.ffsd` files or raw 96-byte data.  
-- **Rich Rendering Options**: Control size, zoom, expression, and view.  
-- **Full-Body Posing**: Pose arms, legs, torso and head with one consistent joint convention, animate with keyframes, or drive the Mii from a webcam.  
-- **Cross-Platform**: Works on Linux and Windows.  
-- **Managed Resources**: The backend starts and stops on its own and cleans up temporary files.
-
-## Prerequisites
-
-The backend is native code, so you need a working C++ build setup.
-
-### Windows
-
-- Git  
-- CMake  
-- Visual Studio with the “Desktop development with C++” workload  
-
-### Linux (Debian/Ubuntu)
-
-```sh
-sudo apt-get update
-sudo apt-get install git build-essential cmake libglfw3-dev libgl1-mesa-dev
-```
+- **One-call rendering**: face, upper-body and full-body views, in any expression, rotation, size and background.
+- **Full-body posing**: pose every joint with one consistent convention. It includes bend and aim helpers, two-bone IK and anatomical joint limits.
+- **Self-collision**: limbs are kept out of the torso, hips, head and each other.
+- **Animation**: build keyframe clips or procedural motion, and export GIFs.
+- **Interactive tools**: a mouse-driven pose editor, a WASD walking simulator and a webcam-driven avatar.
+- **Self-building backend**: the C++ renderer compiles itself, with MiiPy's extensions applied as a patch.
+- **Flexible input**: `.ffsd` files or raw 96-byte Mii data.
 
 ## Installation
 
-> **Note:** Not yet published to PyPI.
+The renderer is native code, so you need a C++ toolchain:
+
+```sh
+# Debian/Ubuntu
+sudo apt-get install git build-essential cmake libglfw3-dev libgl1-mesa-dev
+# Windows: Git, CMake and Visual Studio with "Desktop development with C++"
+```
+
+Then clone, install and build:
 
 ```sh
 git clone --recursive https://github.com/davitizhgenti/miipy
@@ -40,93 +33,43 @@ pip install -e .
 python -m mii build --resource path/to/FFLResHigh.dat
 ```
 
-The build applies miipy's backend changes (`patches/ffl-testing.patch`: bone
-rotations, mouth frames, eyebrow deltas, eye gaze, upper-body view) to the
-FFL-Testing submodule, then compiles it. If the backend is missing, `MiiPy()`
-also builds it on first use.
+- **`FFLResHigh.dat`** is Nintendo's Mii resource file. You must supply it from a legitimate Wii U dump. `--resource` copies it into `FFL-Testing/`. It is not part of this repository and must never be committed.
+- **The build** applies `patches/ffl-testing.patch` to the FFL-Testing submodule, then compiles it. The patch adds bone rotations, mouth frames, eyebrow deltas, eye gaze and an upper-body view. If the backend is missing, `MiiPy()` also builds it on first use.
 
-## Usage
-
-### Step 1: Required Resource File
-
-You must supply **FFLResHigh.dat**, obtained from a legitimate Wii U dump.
-Copy it into the `FFL-Testing` folder, or pass `--resource` to `python -m mii build`.
-It is not included in this repository and must never be committed.
-
-### Step 2: Basic Example
+## Quick start
 
 ```python
 from mii import MiiPy, Expression, ViewType
-import os
 
-MII_FILE = "path/to/your/mii.ffsd"
-
-try:
-    with MiiPy() as renderer:
-        # Simple face render
-        renderer.render(
-            source=MII_FILE,
-            out="my_mii.png",
-            size=512
-        )
-
-        # Smiling expression returned as PIL Image
-        img_obj = renderer.render(
-            source=MII_FILE,
-            expression=Expression.SMILE,
-            zoom=800
-        )
-        img_obj.save("smile.png")
-
-        # Full body render (needs strong zoom-out)
-        renderer.render(
-            source=MII_FILE,
-            out="body.png",
-            view=ViewType.ALL_BODY,
-            size=512,
-            zoom=1200
-        )
-
-        # Render from raw bytes
-        with open(MII_FILE, "rb") as f:
-            data_bytes = f.read()
-
-        renderer.render(
-            source=data_bytes,
-            out="from_bytes.png"
-        )
-
-except (FileNotFoundError, RuntimeError) as e:
-    print(f"An error occurred: {e}")
+with MiiPy() as r:
+    r.render("mii.ffsd", out="face.png", size=512)
+    r.render("mii.ffsd", out="smile.png", expression=Expression.SMILE)
+    r.render("mii.ffsd", out="body.png", view=ViewType.ALL_BODY, model_rot=(0, 30, 0))
+    img = r.render(open("mii.ffsd", "rb").read())    # raw bytes in, PIL image out
 ```
 
-## API Reference
+**`MiiPy(port=12346, auto_start=True, show_logs=False)`** starts the renderer. It stops automatically when the `with` block exits.
 
-### `MiiPy(port=12346, show_logs=False)`
+**`render(source, out=None, size=512, **options)`** returns a Pillow image, and also saves it when `out` is given. Common options:
 
-Main class for rendering Miis.
+| Option | Meaning |
+|---|---|
+| `view` | `ViewType.FACE`, `FACE_ONLY`, `UPPER_BODY`, `ALL_BODY` |
+| `expression` | `Expression.SMILE`, `SURPRISE`, `WINK_LEFT`, … (including the Miitomo set) |
+| `pose` | A `Pose` for full-body views (see below) |
+| `model_rot`, `camera_rot` | Rotations `(x, y, z)` in degrees |
+| `bg_color` | RGBA background; the default is transparent |
+| `clothes_color`, `pants_color` | `ClothesColor.BLUE`, `PantsColor.GRAY`, … |
+| `body_type`, `shader_type` | Wii U (default) or Switch body and shading |
+| `mouth_frame` | 0–1; above 0.5 switches to the open-mouth version of the expression |
+| `eyebrow_delta_y`, `eyebrow_delta_rotate` | Raise, lower or tilt the eyebrows |
+| `zoom` | Render resolution before the image is resized to `size` |
 
-* **port**: TCP port for the backend.
-* **show_logs**: Print backend logs.
+Unknown options are ignored with a warning.
 
-### `renderer.render(source, out=None, size=512, **kwargs)`
+**`animate(source, size, **options)`** keeps the settings between frames. Call `.frame(**changes)` to render each frame.
 
-Render a single image.
-
-* **source**: Path to a `.ffsd` file or raw 96-byte data.
-* **out**: Output PNG path. If `None`, returns a Pillow Image.
-* **size**: Final image resolution.
-* **kwargs**: Extra render controls. Common options:
-
-  * `zoom`: Field-of-view control. Higher values pull the camera back.
-  * `expression`: A facial expression (`Expression.SMILE`, etc.).
-  * `view`: Which part to render (`ViewType.ALL_BODY`, etc.).
-  * `clothes_color`: Shirt color (`ClothesColor.BLUE`).
-  * `model_rot`: A rotation tuple `(X, Y, Z)`.
-
-## Posing the Body
-
-Use `Pose` with `Joint` to pose full-body renders (`ViewType.ALL_BODY` / `UPPER_BODY`, Wii U and Switch bodies):
+## Posing the body
 
 ```python
 from mii import MiiPy, Pose, Joint, ViewType
@@ -139,95 +82,145 @@ pose = (Pose()
 
 with MiiPy() as r:
     r.render("mii.ffsd", out="wave.png", view=ViewType.ALL_BODY, pose=pose)
-    r.render("mii.ffsd", out="wave_mirrored.png", view=ViewType.ALL_BODY, pose=pose.mirror())
+    r.render("mii.ffsd", out="mirrored.png", view=ViewType.ALL_BODY, pose=pose.mirror())
 ```
 
 **Convention** (the same for every joint):
 
-* Rotations are in body axes at rest: +X = the Mii's left, +Y = up, +Z = forward.
-* Euler angles are intrinsic X→Y→Z in degrees.
-* The pivot is the joint. A joint's axes move with its parent, so an elbow bend stays an elbow bend however the shoulder is posed.
-* Left and right joints take the **same values** for a symmetric pose.
+- Rotations are in **body axes**: +X = the Mii's left, +Y = up, +Z = forward. Euler angles are intrinsic X→Y→Z in degrees.
+- The pivot is the joint, and a joint's axes move with its parent, so an elbow bend stays an elbow bend however the shoulder is posed.
+- Left and right joints take the **same values** for a symmetric pose.
 
 **Joints:**
-* `ROOT`, `CHEST`, `NECK`
-* `SHOULDER_x` (upper arm), `ELBOW_x` (forearm, hinge), `WRIST_x`
-* `HIP_x` (thigh), `KNEE_x` (shin, hinge), `ANKLE_x`
+- `ROOT`, `CHEST`, `NECK`
+- `SHOULDER_x` (upper arm), `ELBOW_x` (forearm, hinge), `WRIST_x`
+- `HIP_x` (thigh), `KNEE_x` (shin, hinge), `ANKLE_x`
 
-**Tools:**
-* `bend()` bends a hinge; a positive value is natural flexion.
-* `aim()` points a segment along a direction.
-* `aim_limb()` aims a whole arm or leg from two directions.
-* `clamp()` applies anatomical limits.
-* `lerp()` interpolates between poses for animation.
-* `world_positions()` returns joint positions (forward kinematics).
+| Method | What it does |
+|---|---|
+| `set(joint, x, y, z)` / `set_rotation(joint, R)` | Rotate a joint by Euler angles, a matrix or a quaternion |
+| `bend(joint, deg)` | Bend an elbow or knee; positive is natural flexion |
+| `twist(joint, deg)` | Roll a limb about its length, which turns the plane the elbow or knee bends in |
+| `aim(joint, dir)` / `aim_limb(joint, upper, lower)` | Point a segment, or a whole arm or leg, along directions |
+| `reach(joint, point)` | Two-bone IK: put a hand or foot at a point |
+| `clamp()` | Anatomical limits: hinges bend one way only; hips and chest have separate forward/back/sideways/twist ranges |
+| `resolve_collisions()` | Push limbs out of the body (see below) |
+| `mirror()`, `lerp(other, t)` | Mirror image, and smooth interpolation between poses |
+| `world_positions()` | Joint positions (forward kinematics) |
+| `to_dict()` / `Pose.from_dict()` | Save and load poses (for example as JSON) |
 
-**Self-collision:** `pose.resolve_collisions()` returns a copy in which limbs don't pass through the torso, hips, head or each other. It pushes them out with the smallest shoulder/hip rotation and elbow/knee bend it can, and it usually takes a few milliseconds.
+![Reference poses, front and side](docs/pose_sheet.png)
 
-* The colliders are capsules fitted to the real body mesh, plus a sphere for the FFL head.
-* Poses that don't collide are returned unchanged.
-* Webcam retargeting applies it by default.
-* The colliders ignore the individual Mii's height and build. Very tall or very wide Miis can still clip slightly, and an unusually large hairstyle can reach past the head sphere.
+## Self-collision
+
+`pose.resolve_collisions()` returns a copy in which the limbs don't pass through the torso, hips, head or each other.
+
+- It pushes limbs out with the smallest shoulder or hip rotation and elbow or knee bend it can, within the joint limits.
+- It usually takes a few milliseconds.
+- Poses that don't collide come back unchanged.
+- The collision shapes are capsules fitted to the real body mesh, plus a sphere matching FFL's head.
+
+![Before and after collision resolution](docs/collision.png)
+
+**Limitations:**
+- The shapes ignore the individual Mii's height and build, so very tall or very wide Miis can still overlap slightly.
+- The head is a single sphere, so an unusually big hairstyle can stick out past it.
+
+## Animation
+
+An animation is a keyframe `Clip`, or any function that takes a phase `t` in [0, 1) and returns a `Pose`:
 
 ```python
-pose = Pose().aim(Joint.SHOULDER_L, [-0.6, -0.4, 0.2]).bend(Joint.ELBOW_L, 30)  # hand through chest
-r.render("mii.ffsd", out="fixed.png", view=ViewType.ALL_BODY, pose=pose.resolve_collisions())
+from mii.animation import Clip, render_frames, save_gif
+
+arms_up = Pose().aim(Joint.SHOULDER_L, [0.3, 1, 0]).aim(Joint.SHOULDER_R, [-0.3, 1, 0])
+clip = Clip([(0.0, Pose()), (0.5, arms_up)])            # loops back to the start
+
+with MiiPy() as r:
+    ctx = r.animate("mii.ffsd", size=320, view=ViewType.ALL_BODY)
+    save_gif(render_frames(ctx, clip, 20), "arms.gif", fps=16)
 ```
 
-`mii.retarget.pose_from_mediapipe()` builds a `Pose` from MediaPipe `pose_world_landmarks`. See `examples/vavatar.py` for a webcam demo that uses the MediaPipe Tasks API.
+![Walk, wave, jumping jacks and dance](docs/animations.gif)
 
-![Reference poses, front and side](docs/pose_sheet_wiiu.png)
+`examples/animations.py` renders the four animations above.
 
-`examples/pose_editor.py` is an interactive pose editor. Drag the hands, feet, elbows, knees, head and chest of a skeleton with the mouse and see the Mii render update live, with collisions on or off, symmetric editing, and save/load. `Pose.reach()` moves a hand or foot to a point (two-bone IK), and `Pose.to_dict()` / `Pose.from_dict()` save and load poses.
+## Interactive tools
 
-`tests/walk_sim.py` walks the Mii around a small world with WASD (Shift to run). It uses a procedural gait matched to the ground speed, so the feet don't slide. It needs `pip install pygame`.
+### Pose editor: `examples/pose_editor.py`
 
-`examples/pose_sheet.py` renders a sheet of reference poses for visual review. The tests are in `tests/`. Run them with `pytest tests`; the render tests skip themselves if the backend isn't built.
+Drag the hands, feet, elbows, knees, head and chest of a skeleton with the mouse, and the Mii render updates live.
+- Front and side views.
+- Collisions and symmetric editing can be switched on and off.
+- Mirror the pose, turn the head, twist the torso, and save poses to JSON.
 
-The low-level `bones=[BoneOverride(Bone.X, ...)]` still works. Its Euler angles are in each bone's *parent rest axes*, and `ELBOW_x`, `SHOULDER_x` and `KNEE_x` in `Bone` are the joint *spheres*, not the bending segments.
+It needs `pip install opencv-python`.
 
-## Troubleshooting
+![Pose editor](docs/pose_editor.png)
 
-* **Build failure**: Missing compilers or libraries. Check prerequisites.
-* **Backend fails to start**:
+### Walking simulator: `tests/walk_sim.py`
 
-  * Ensure `FFLResHigh.dat` exists in `FFL-Testing`.
-  * Check file permissions or corruption.
-  * Headless Linux may require `xvfb-run`.
-* **Git submodule errors**: Verify Git and network access.
+Walk the Mii around with **WASD**, and hold **Shift** to run.
+- The gait is procedural, and its speed is measured from the gait itself, so the feet don't slide.
+- The Mii turns smoothly, eases into a standing pose when you stop, and slides around solid trees.
 
-## For Developers
+It needs `pip install pygame`.
 
-Rebuild manually:
+![Walking simulator](docs/walk.gif)
+
+### Webcam avatar: `examples/vavatar.py`
+
+MediaPipe body and face tracking drives the Mii live:
+- arms and legs in 3D;
+- head rotation;
+- mouth, blinks and eyebrows from face blendshapes.
+
+The tracked pose is smoothed and kept collision-free. The building blocks are `mii.retarget.pose_from_mediapipe()` and `PoseFilter`. It needs `pip install mediapipe opencv-python`.
+
+## Project layout
+
+```
+mii/            the library: renderer client (MiiPy), rig (Pose), collision, animation, retarget
+examples/       demo, pose sheet, animations, pose editor, webcam avatar
+tests/          pytest suite (rig, collision, retarget, animation, golden-image renders) + walk_sim.py
+patches/        MiiPy's changes to the FFL-Testing renderer
+docs/           README images
+FFL-Testing/    renderer (git submodule)
+```
+
+## Development
+
+Useful commands:
 
 ```sh
-python -m mii build
+python -m mii build                                           # rebuild the renderer
+python -m mii build --reset --resource path/to/FFLResHigh.dat # clean submodule, re-apply patch, rebuild
+pytest tests                                                  # render tests skip if the renderer isn't built
 ```
 
-Do a full reset (discards local submodule edits, then re-applies the patch) and rebuild:
-
-```sh
-python -m mii build --reset --resource path/to/FFLResHigh.dat
-```
-
-Run the tests (`pip install pytest`). Render tests are skipped if the backend isn't built:
-
-```sh
-pytest tests
-```
-
-**Changing the C++ backend:** edit files in `FFL-Testing/`, then regenerate the patch:
+**Changing the C++ renderer:** edit the files in `FFL-Testing/`, then regenerate the patch:
 
 ```sh
 git -C FFL-Testing diff --binary > patches/ffl-testing.patch
 ```
 
+The local edits inside the submodule are hidden from `git status` (`ignore = dirty`). The patch file is what gets committed, so remember to regenerate it after editing.
+
+**Low-level bones:** `bones=[BoneOverride(Bone.X, rotate=...)]` still works. Its Euler angles are in each bone's *parent rest axes*. `Bone.ELBOW_x`, `SHOULDER_x` and `KNEE_x` are the joint *spheres*, not the bending segments; use `Pose` and `Joint` instead.
+
+## Troubleshooting
+
+- **Build failure:** a compiler or library is missing; check the installation prerequisites.
+- **The renderer fails to start:**
+  - check that `FFL-Testing/FFLResHigh.dat` exists;
+  - run with `MiiPy(show_logs=True)` to see why;
+  - headless Linux may need `xvfb-run`.
+- **"Could not apply ffl-testing.patch":** the submodule is at a different commit. Run `python -m mii build --reset`.
+
 ## Acknowledgements
 
-This project builds on the FFL-Testing work by Arian Kordi and the wider homebrew and reverse-engineering community.
+This project builds on the FFL-Testing and FFL work by Arian Kordi, and on the wider homebrew and reverse-engineering community.
 
 ## License
 
-Released under the MIT License.
-
-**Note:** Nintendo assets such as `FFLResHigh.dat` are not included and remain under their original licenses.
+Released under the MIT License. Nintendo assets such as `FFLResHigh.dat` are not included and remain under their original licenses.
