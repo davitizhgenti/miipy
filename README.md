@@ -224,3 +224,13 @@ This project builds on the FFL-Testing and FFL work by Arian Kordi, and on the w
 ## License
 
 Released under the MIT License. Nintendo assets such as `FFLResHigh.dat` are not included and remain under their original licenses.
+
+## AI Assistance
+
+Parts of this project were developed with the help of an AI coding assistant, [Claude](https://www.anthropic.com/claude) by Anthropic. It contributed to:
+- the pose rig, self-collision, animation and webcam-retargeting modules;
+- the interactive tools (pose editor and walking simulator);
+- the test suite;
+- this README and its images.
+
+The design direction, testing on real hardware and final decisions are the author's.
