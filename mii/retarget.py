@@ -48,9 +48,11 @@ def _torso_frame(p):
 
 
 def pose_from_mediapipe(world_landmarks, skeleton=None, legs=True, torso=True,
-                        mirror=False, min_visibility=0.5, clamp=True):
+                        mirror=False, min_visibility=0.5, clamp=True, collide=True):
     """Build a Pose from `results.pose_world_landmarks.landmark` (or any
-    sequence of objects with x, y, z and optionally visibility)."""
+    sequence of objects with x, y, z and optionally visibility).
+
+    clamp applies joint limits; collide pushes limbs out of the body."""
     lm = list(world_landmarks)
     p = {i: to_body_space(lm[i]) for i in range(len(lm))}
     visible = lambda *ids: all(getattr(lm[i], "visibility", 1.0) >= min_visibility for i in ids)  # noqa: E731
@@ -65,7 +67,9 @@ def pose_from_mediapipe(world_landmarks, skeleton=None, legs=True, torso=True,
             pose.aim(joint, p[b] - p[a])
     if mirror:
         pose = pose.mirror()
-    return pose.clamp() if clamp else pose
+    if clamp:
+        pose = pose.clamp()
+    return pose.resolve_collisions() if collide else pose
 
 
 class PoseFilter:

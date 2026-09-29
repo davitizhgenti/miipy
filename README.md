@@ -162,6 +162,18 @@ with MiiPy() as r:
 * `lerp()` interpolates between poses for animation.
 * `world_positions()` returns joint positions (forward kinematics).
 
+**Self-collision:** `pose.resolve_collisions()` returns a copy in which limbs don't pass through the torso, hips, head or each other. It pushes them out with the smallest shoulder/hip rotation and elbow/knee bend it can, and it usually takes a few milliseconds.
+
+* The colliders are capsules fitted to the real body mesh, plus a sphere for the FFL head.
+* Poses that don't collide are returned unchanged.
+* Webcam retargeting applies it by default.
+* The colliders ignore the individual Mii's height and build. Very tall or very wide Miis can still clip slightly, and an unusually large hairstyle can reach past the head sphere.
+
+```python
+pose = Pose().aim(Joint.SHOULDER_L, [-0.6, -0.4, 0.2]).bend(Joint.ELBOW_L, 30)  # hand through chest
+r.render("mii.ffsd", out="fixed.png", view=ViewType.ALL_BODY, pose=pose.resolve_collisions())
+```
+
 `mii.retarget.pose_from_mediapipe()` builds a `Pose` from MediaPipe `pose_world_landmarks`. See `examples/vavatar.py` for a webcam demo that uses the MediaPipe Tasks API.
 
 ![Reference poses, front and side](docs/pose_sheet_wiiu.png)

@@ -366,6 +366,28 @@ class Pose:
         t = (best[1] + 180.0) % 360.0 - 180.0
         return -t if joint in _RIGHT_JOINTS else t
 
+    def hinge_angle(self, joint):
+        """Current bend of a hinge joint (ELBOW_x / KNEE_x) in degrees."""
+        joint = Joint(joint)
+        q = matrix_to_quat(self.rotation(joint))
+        angle = math.degrees(2 * math.atan2(np.dot(q[1:], self.skeleton.hinge_axis(joint)), q[0]))
+        return (angle + 180.0) % 360.0 - 180.0
+
+    def rotate_world(self, joint, axis, degrees):
+        """Rotate a joint (and everything below it) about a world-space axis."""
+        joint = Joint(joint)
+        sk = self.skeleton
+        parent = sk.parents[joint]
+        # The joint's frame is carried by its parent: world = C @ R_body @ rest.
+        c = self.world_matrices()[parent][:3, :3] @ sk.rest_world[parent][:3, :3].T
+        r = c.T @ axis_angle(axis, degrees) @ c @ self.body_rotation(joint)
+        return self.set_rotation(joint, _mirror(joint, r))
+
+    def resolve_collisions(self, head_scale=1.0):
+        """Copy of this pose with limbs pushed out of the body and each other."""
+        from .collision import CollisionModel
+        return CollisionModel.load(self.skeleton.name, head_scale).resolve(self)
+
     def reset(self, joint=None):
         if joint is None:
             self._rot.clear()

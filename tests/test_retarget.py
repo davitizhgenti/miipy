@@ -64,12 +64,12 @@ SOURCES = {
 @pytest.mark.parametrize("name", SOURCES)
 def test_roundtrip(name):
     source = SOURCES[name]()
-    assert_same_limbs(source, rt.pose_from_mediapipe(fake_landmarks(source)))
+    assert_same_limbs(source, rt.pose_from_mediapipe(fake_landmarks(source), collide=False))
 
 
 def test_mirror_option():
     source = SOURCES["reach"]()
-    assert_same_limbs(source.mirror(), rt.pose_from_mediapipe(fake_landmarks(source), mirror=True))
+    assert_same_limbs(source.mirror(), rt.pose_from_mediapipe(fake_landmarks(source), mirror=True, collide=False))
 
 
 def test_invisible_limbs_stay_at_rest():
@@ -87,3 +87,10 @@ def test_filter_converges():
     for _ in range(20):
         out = f(target)
     assert_same_limbs(out, target, tol=0.1)
+
+
+def test_retarget_resolves_collisions():
+    from mii.collision import CollisionModel
+    crossed = (Pose().aim(Joint.SHOULDER_L, [-0.5, -0.3, 0.6]).bend(Joint.ELBOW_L, 60)
+               .aim(Joint.SHOULDER_R, [0.5, -0.3, 0.6]).bend(Joint.ELBOW_R, 60))
+    assert CollisionModel.load("wiiu").contacts(rt.pose_from_mediapipe(fake_landmarks(crossed))) == []

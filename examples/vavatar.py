@@ -113,14 +113,15 @@ def main():
             face = face_lm.detect_for_video(image, ts)
 
             if body.pose_world_landmarks:
-                pose = pose_from_mediapipe(body.pose_world_landmarks[0], legs=legs, clamp=False)
+                pose = pose_from_mediapipe(body.pose_world_landmarks[0], legs=legs, clamp=False, collide=False)
             else:  # keep the last body pose, still track the head
                 pose = smooth.pose.copy() if smooth.pose else Pose()
             head = head_rotation(face)
             if head is not None:
                 # NECK is carried by the chest: make the head relative to it.
                 pose.set_rotation(Joint.NECK, pose.body_rotation(Joint.CHEST).T @ head)
-            pose = smooth(pose.clamp())
+            # Smooth first, then keep the smoothed pose out of the body.
+            pose = smooth(pose.clamp()).resolve_collisions()
 
             params = face_params(face)
             expr = EXPRESSIONS[expr_idx]
