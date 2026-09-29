@@ -239,3 +239,25 @@ def test_pack_uses_body_skeleton():
     switch = unpack_bones(s)
     assert wiiu[Joint.ELBOW_L].any() and switch[Joint.ELBOW_L].any()
     assert not np.array_equal(wiiu, switch)   # conversion used each body's rest frames
+
+
+@pytest.mark.parametrize("root,end,target", [
+    (Joint.SHOULDER_L, Joint.WRIST_L, [3.5, 10, 2]), (Joint.SHOULDER_R, Joint.WRIST_R, [-2, 13, 1]),
+    (Joint.HIP_L, Joint.ANKLE_L, [1, 3, 2.5]), (Joint.HIP_R, Joint.ANKLE_R, [-1.5, 1.5, -1.5])])
+def test_reach_puts_hand_or_foot_on_target(root, end, target):
+    pose = Pose().reach(root, target)
+    assert np.allclose(pose.world_positions()[end], target, atol=0.01)
+
+
+def test_reach_out_of_range_gets_as_close_as_possible():
+    pose = Pose().reach(Joint.SHOULDER_L, [9, 9, 0])
+    pos = pose.world_positions()
+    to_hand = pos[Joint.WRIST_L] - pos[Joint.SHOULDER_L]
+    assert angle_between(to_hand, np.array([9, 9, 0]) - pos[Joint.SHOULDER_L]) < 1.0
+
+
+def test_pose_dict_roundtrip():
+    pose = Pose().bend(Joint.ELBOW_L, 70).set(Joint.NECK, y=20).reach(Joint.HIP_R, [-1.5, 2, 1.5])
+    again = Pose.from_dict(pose.to_dict())
+    for j in Joint:
+        assert np.allclose(again.rotation(j), pose.rotation(j))

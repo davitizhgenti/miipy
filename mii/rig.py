@@ -366,6 +366,56 @@ class Pose:
         t = (best[1] + 180.0) % 360.0 - 180.0
         return -t if joint in _RIGHT_JOINTS else t
 
+    def reach(self, joint, target, pole=None):
+        """Two-bone IK: move a limb's hand/foot to `target` (body space).
+
+        `joint` is SHOULDER_x or HIP_x. The elbow/knee stays on the side it
+        is currently on (or towards `pole`); out-of-reach targets are
+        approached as closely as possible.
+        """
+        joint = Joint(joint)
+        hinge = SEGMENT_END[joint]
+        end = SEGMENT_END[hinge]
+        sk = self.skeleton
+        rest = sk.rest_world
+        l1 = np.linalg.norm(rest[hinge][:3, 3] - rest[joint][:3, 3])
+        l2 = np.linalg.norm(rest[end][:3, 3] - rest[hinge][:3, 3])
+
+        world = self.world_matrices()
+        s = world[joint][:3, 3]
+        to_target = np.asarray(target, dtype=float) - s
+        d = np.linalg.norm(to_target)
+        if d < 1e-6:
+            return self
+        u = to_target / d
+        # Fully extended = the rest pose's span (the rest limb isn't quite
+        # straight, and the elbow/knee can't bend backwards past it).
+        span = np.linalg.norm(rest[end][:3, 3] - rest[joint][:3, 3])
+        d = min(max(d, abs(l1 - l2) + 1e-3), span - 1e-3)
+        if pole is None:
+            pole = world[hinge][:3, 3] - s
+        pole = np.asarray(pole, dtype=float)
+        pole = pole - u * np.dot(pole, u)
+        if np.linalg.norm(pole) < 1e-3:  # straight limb: bend the natural way
+            default = np.array([0.0, 0.0, -1.0 if _limit_key(joint) == Joint.SHOULDER_L else 1.0])
+            pole = default - u * np.dot(default, u)
+        pole /= np.linalg.norm(pole)
+        cos_a = (l1 * l1 + d * d - l2 * l2) / (2 * l1 * d)
+        a = math.acos(max(-1.0, min(1.0, cos_a)))
+        knee = s + l1 * (math.cos(a) * u + math.sin(a) * pole)
+        return self.aim_limb(joint, knee - s, s + d * u - knee)
+
+    def to_dict(self):
+        """{joint name: quaternion [w, x, y, z]} for saving (e.g. as JSON)."""
+        return {j.name: matrix_to_quat(r).tolist() for j, r in self._rot.items()}
+
+    @classmethod
+    def from_dict(cls, data, skeleton=None):
+        pose = cls(skeleton)
+        for name, q in data.items():
+            pose.set_rotation(Joint[name], np.asarray(q, dtype=float))
+        return pose
+
     def hinge_angle(self, joint):
         """Current bend of a hinge joint (ELBOW_x / KNEE_x) in degrees."""
         joint = Joint(joint)

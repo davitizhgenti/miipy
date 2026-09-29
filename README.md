@@ -178,6 +178,8 @@ r.render("mii.ffsd", out="fixed.png", view=ViewType.ALL_BODY, pose=pose.resolve_
 
 ![Reference poses, front and side](docs/pose_sheet_wiiu.png)
 
+`examples/pose_editor.py` is an interactive pose editor. Drag the hands, feet, elbows, knees, head and chest of a skeleton with the mouse and see the Mii render update live, with collisions on or off, symmetric editing, and save/load. `Pose.reach()` moves a hand or foot to a point (two-bone IK), and `Pose.to_dict()` / `Pose.from_dict()` save and load poses.
+
 `examples/pose_sheet.py` renders a sheet of reference poses for visual review. The tests are in `tests/`. Run them with `pytest tests`; the render tests skip themselves if the backend isn't built.
 
 The low-level `bones=[BoneOverride(Bone.X, ...)]` still works. Its Euler angles are in each bone's *parent rest axes*, and `ELBOW_x`, `SHOULDER_x` and `KNEE_x` in `Bone` are the joint *spheres*, not the bending segments.
